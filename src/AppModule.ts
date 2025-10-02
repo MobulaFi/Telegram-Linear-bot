@@ -9,6 +9,7 @@ import { RedisModule } from './redis/redisModule.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
+       isGlobal: true,
       validate: (unsafeConfig) => LinearTrackerBotConfig.parse(unsafeConfig),
     }),
     RedisModule

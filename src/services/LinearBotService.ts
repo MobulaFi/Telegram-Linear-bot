@@ -26,10 +26,17 @@ export default class LinearTrackerBot {
   private bot?: Telegraf<Context>;
   private isLaunched = false;
 
-  constructor(
-    @Inject(ConfigService) private readonly config: ConfigService<LinearTrackerBotConfig, true>,
-    @Inject('REDIS') private readonly redis: Redis,
-  ) {}
+  private allowedUsernames: Set<string>;
+
+constructor(
+  @Inject(ConfigService) private readonly config: ConfigService<LinearTrackerBotConfig, true>,
+  @Inject('REDIS') private readonly redis: Redis,
+) {
+  const usernames = this.config.get<string>('TELEGRAM_ALLOWED_USERNAMES') || '';
+  console.log('Whitelisted usernames from env:', usernames);
+  this.allowedUsernames = new Set(usernames.split(',').map((u) => u.trim()).filter(Boolean));
+}
+
 
 
   private parseComments(raw?: string): { text: string; author: string; createdAt: string }[] {
@@ -91,19 +98,27 @@ export default class LinearTrackerBot {
     }
   }
 
-  private readonly allowedUsernames = new Set<string>(['Sandy0209', 'NBMSacha', 'NBMXyeu', 'sol_knowz']);
 
 async launchBot() {
   if (this.isLaunched) return;
   this.isLaunched = true;
 
   console.info('Starting Telegram bot...');
-  const token = '8232736662:AAFbjZHjYEvA0pPfSqB5r0q_XdtxyhGcMZA';
+
+  const token = process.env.TELEGRAM_ROOM_BOT_TOKEN;
+  if (!token) {
+    console.error('❌ TELEGRAM_BOT_TOKEN is not set in environment variables');
+    return;
+  }
+  console.log("Custom Token", token.slice(0, 5) + '...' + token.slice(-5));
   this.bot = new Telegraf(token);
+  console.log('Telegram bot instance created');
+
+  console.log("Allowed usernames:", Array.from(this.allowedUsernames).join(', '));
 
   // Start command
   this.bot.start((ctx) => {
-    const welcomeMsg = `🚀 <b>Welcome to Task Tracker Bot!</b>
+    const welcomeMsg = `🚀 <b>Welcome to Mobula Super Bot!</b>
 
 <b>Available Commands:</b>
 /ticket &lt;title&gt; | &lt;description&gt; — Create a new ticket
@@ -116,7 +131,7 @@ Ready to track your tickets! 📝`;
 
   // Help command
   this.bot.command('help', (ctx) => {
-    const helpMsg = `📖 <b>Task Tracker Bot Help</b>
+    const helpMsg = `📖 <b>Mobula Super Bot Help</b>
 
 <b>Commands:</b>
 /ticket &lt;title&gt; | &lt;description&gt; — Create issue
