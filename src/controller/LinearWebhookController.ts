@@ -5,28 +5,33 @@ import LinearTrackerBot from 'src/services/LinearBotService';
 interface LinearWebhookPayload {
   action: string;
   type?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: <any>
   data: any;
 }
 
 @Controller()
 export class LinearWebhookController {
+  private lastProcessedState = new Map<string, string>();
   constructor(
     @Inject(LinearTrackerBot) private readonly linearTrackerBot: LinearTrackerBot,
-  ) {}
+  ) { }
 
   @Post('linear-webhook')
   @UseGuards(LinearAuthGuard)
   handle(@Body() data: LinearWebhookPayload) {
-    console.log('Webhook received:', data);
 
-    // Process asynchronously so we can return immediately
+    console.log('Webhook received:', data);
     setImmediate(async () => {
       try {
         if (data.action === 'update') {
-          const { id, state } = data.data;
-          if (state?.name) {
-            await this.linearTrackerBot.updateIssueStatuss(id, state.name);
-          }
+          const { id, identifier, state } = data.data;
+          const stateName = state?.name;
+
+          if (!id || !identifier || !stateName) return;
+          if (this.lastProcessedState.get(identifier) === stateName) return;
+          this.lastProcessedState.set(identifier, stateName);
+
+          await this.linearTrackerBot.updateIssueStatuss(id, stateName);
         }
 
         if (data.action === 'create' && data.type === 'Comment') {
@@ -37,13 +42,12 @@ export class LinearWebhookController {
               author: user.name,
               date: createdAt,
             });
-          }
+          };
         }
       } catch (err) {
         console.error('Error processing Linear webhook:', err);
       }
     });
-
     return 'ok';
   }
 }
