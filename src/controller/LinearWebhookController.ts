@@ -5,7 +5,6 @@ import LinearTrackerBot from 'src/services/LinearBotService';
 interface LinearWebhookPayload {
   action: string;
   type?: string;
-  // biome-ignore lint/suspicious/noExplicitAny: <not sure the exact type here>
   data: any;
 }
 
@@ -17,26 +16,33 @@ export class LinearWebhookController {
 
   @Post('linear-webhook')
   @UseGuards(LinearAuthGuard)
-  async handle(@Body() data: LinearWebhookPayload) {
+  handle(@Body() data: LinearWebhookPayload) {
+    console.log('Webhook received:', data);
 
-    if (data.action === 'update') {
-      const getId = data.data.id;
-      const getState = data.data.state;
-      await this.linearTrackerBot.updateIssueStatuss(getId, getState.name);
-    }
+    // Process asynchronously so we can return immediately
+    setImmediate(async () => {
+      try {
+        if (data.action === 'update') {
+          const { id, state } = data.data;
+          if (state?.name) {
+            await this.linearTrackerBot.updateIssueStatuss(id, state.name);
+          }
+        }
 
-    if (data.action === 'create' && data.type === 'Comment') {
-      const commentText = data.data.body;
-      const issueId = data.data.issue.id;
-      const sender = data.data.user.name;
-      const timestamp = data.data.createdAt;
-
-      await this.linearTrackerBot.updateIssueStatuss(issueId, '', {
-        text: commentText,
-        author: sender,
-        date: timestamp,
-      });
-    }
+        if (data.action === 'create' && data.type === 'Comment') {
+          const { body, issue, user, createdAt } = data.data;
+          if (body && issue?.id && user?.name) {
+            await this.linearTrackerBot.updateIssueStatuss(issue.id, '', {
+              text: body,
+              author: user.name,
+              date: createdAt,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error processing Linear webhook:', err);
+      }
+    });
 
     return 'ok';
   }
