@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { type Context, Telegraf } from 'telegraf';
 import type LinearTrackerBotConfig from 'src/config/LinearBotConfig';
-import Redis from 'ioredis';
+import type Redis from 'ioredis';
 
 interface TelegramLinearIssue {
   chatId: number;
@@ -28,15 +28,24 @@ export default class LinearTrackerBot {
 
   private allowedUsernames: Set<string>;
 
-constructor(
-  @Inject(ConfigService) private readonly config: ConfigService<LinearTrackerBotConfig, true>,
-  @Inject('REDIS') private readonly redis: Redis,
-) {
-  const usernames = this.config.get<string>('TELEGRAM_ALLOWED_USERNAMES') || '';
-  console.log('Whitelisted usernames from env:', usernames);
-  this.allowedUsernames = new Set(usernames.split(',').map((u) => u.trim()).filter(Boolean));
-}
+  constructor(
+    @Inject(ConfigService) private readonly config: ConfigService<LinearTrackerBotConfig, true>,
+    @Inject('REDIS') private readonly redis: Redis,
+  ) {
+    const usernames = this.config.get<string>('TELEGRAM_ALLOWED_USERNAMES') || '';
+    console.log('Whitelisted usernames from env:', usernames);
+    this.allowedUsernames = new Set(usernames.split(',').map((u) => u.trim()).filter(Boolean));
+  }
 
+  private get brandName(): string {
+    const isHawk = this.config.get<boolean>('IS_HAWK');
+    return isHawk ? 'Hawk' : 'Mobula';
+  }
+
+  private get commandName(): string {
+    const isHawk = this.config.get<boolean>('IS_HAWK');
+    return isHawk ? 'hawkticket' : 'ticket';
+  }
 
 
   private parseComments(raw?: string): { text: string; author: string; createdAt: string }[] {
@@ -99,81 +108,83 @@ constructor(
   }
 
 
-async launchBot() {
-  if (this.isLaunched) return;
-  this.isLaunched = true;
+  async launchBot() {
+    if (this.isLaunched) return;
+    this.isLaunched = true;
 
-  console.info('Starting Telegram bot...');
+    console.info('Starting Telegram bot...');
 
-  const token = process.env.TELEGRAM_ROOM_BOT_TOKEN;
-  if (!token) {
-    console.error('❌ TELEGRAM_BOT_TOKEN is not set in environment variables');
-    return;
-  }
-  console.log("Custom Token", token.slice(0, 5) + '...' + token.slice(-5));
-  this.bot = new Telegraf(token);
-  console.log('Telegram bot instance created');
+    const token = process.env.TELEGRAM_ROOM_BOT_TOKEN;
+    if (!token) {
+      console.error('❌ TELEGRAM_BOT_TOKEN is not set in environment variables');
+      return;
+    }
+    console.log("Custom Token", `${token.slice(0, 5)}...${token.slice(-5)}`);
+    this.bot = new Telegraf(token);
+    console.log('Telegram bot instance created');
 
-  console.log("Allowed usernames:", Array.from(this.allowedUsernames).join(', '));
+    console.log("Allowed usernames:", Array.from(this.allowedUsernames).join(', '));
 
-  // Start command
-  this.bot.start((ctx) => {
-    const welcomeMsg = `🚀 <b>Welcome to Mobula Super Bot!</b>
+    // Start command
+    this.bot.start((ctx) => {
+      // const welcomeMsg = `🚀 <b>Welcome to Mobula Super Bot!</b>
+      const welcomeMsg = `🚀 <b>Welcome to ${this.brandName} Super Bot!</b>
 
 <b>Available Commands:</b>
-/ticket &lt;title&gt; | &lt;description&gt; — Create a new ticket
+/${this.commandName} &lt;title&gt; | &lt;description&gt; — Create a new ticket
 /help — Show this help message
 
 Ready to track your tickets! 📝`;
 
-    ctx.reply(welcomeMsg, { parse_mode: 'HTML' });
-  });
+      ctx.reply(welcomeMsg, { parse_mode: 'HTML' });
+    });
 
-  // Help command
-  this.bot.command('help', (ctx) => {
-    const helpMsg = `📖 <b>Mobula Super Bot Help</b>
+    // Help command
+   this.bot.command('help', (ctx) => {
+  const helpMsg = `📖 <b>${this.brandName} Super Bot Help</b>
 
 <b>Commands:</b>
-/ticket &lt;title&gt; | &lt;description&gt; — Create issue
-<i>Example: /ticket Fix login bug | Users can't login on mobile</i>
+/${this.commandName} &lt;title&gt; | &lt;description&gt; — Create issue
+<i>Example: /${this.commandName} Fix login bug | Users can't login on mobile</i>
 
 💡 <b>Tips:</b>
 • Use | to separate title and description`;
 
-    ctx.reply(helpMsg, { parse_mode: 'HTML' });
-  });
+  ctx.reply(helpMsg, { parse_mode: 'HTML' });
+});
 
-  // Ticket command
-  this.bot.command('ticket', async (ctx) => {
-    const args = ctx.message.text.replace('/ticket', '').trim();
 
-    if (!args) {
-      return ctx.reply(
-        '❌ <b>Usage:</b> /ticket &lt;title&gt; | &lt;description&gt;\n\n<b>Example:</b>\n/ticket Fix login issue | Users unable to authenticate',
-        { parse_mode: 'HTML' },
-      );
-    }
+    // Ticket command
+    this.bot.command(this.commandName, async (ctx) => {
+      const args = ctx.message.text.replace(`/${this.commandName}`, '').trim();
 
-    const username = ctx.from?.username;
+      if (!args) {
+        return ctx.reply(
+          `❌ <b>Usage:</b> /${this.commandName} &lt;title&gt; | &lt;description&gt;\n\n<b>Example:</b>\n/${this.commandName} Fix login issue | Users unable to authenticate`,
+          { parse_mode: 'HTML' },
+        );
+      }
 
-    if (!username || !this.allowedUsernames.has(username)) {
-      return ctx.reply(
-        '❌ You are not authorized to create issues.\nPlease contact the admin to get access.',
-        { parse_mode: 'HTML' },
-      );
-    }
+      const username = ctx.from?.username;
 
-    const [titlePart, ...descParts] = args.split('|');
-    const title = (titlePart ?? '').trim();
-    const description = descParts.join('|').trim() || '';
-    const team = ctx.chat.type === 'private' ? ctx.from?.username || 'PrivateChat' : ctx.chat.title || 'UnknownGroup';
+      if (!username || !this.allowedUsernames.has(username)) {
+        return ctx.reply(
+          '❌ You are not authorized to create issues.\nPlease contact the admin to get access.',
+          { parse_mode: 'HTML' },
+        );
+      }
 
-    console.debug(`Creating issue: ${title} - ${description}`);
+      const [titlePart, ...descParts] = args.split('|');
+      const title = (titlePart ?? '').trim();
+      const description = descParts.join('|').trim() || '';
+      const team = ctx.chat.type === 'private' ? ctx.from?.username || 'PrivateChat' : ctx.chat.title || 'UnknownGroup';
 
-    const creatingMsg = await ctx.reply('⏳ Creating Ticket...', { parse_mode: 'HTML' });
+      console.debug(`Creating issue: ${title} - ${description}`);
 
-    try {
-      const mutation = `
+      const creatingMsg = await ctx.reply('⏳ Creating Ticket...', { parse_mode: 'HTML' });
+
+      try {
+        const mutation = `
         mutation {
           issueCreate(input: {
             title: "${title}",
@@ -190,79 +201,79 @@ Ready to track your tickets! 📝`;
           }
         }`;
 
-      const res = await axios.post(
-        this.config.get('LINEAR_API_URL'),
-        { query: mutation },
-        {
-          headers: {
-            Authorization: `${this.config.get('LINEAR_API_KEY')}`,
-            'Content-Type': 'application/json',
+        const res = await axios.post(
+          this.config.get('LINEAR_API_URL'),
+          { query: mutation },
+          {
+            headers: {
+              Authorization: `${this.config.get('LINEAR_API_KEY')}`,
+              'Content-Type': 'application/json',
+            },
           },
-        },
-      );
+        );
 
-      const issue = res.data.data?.issueCreate?.issue;
+        const issue = res.data.data?.issueCreate?.issue;
 
-      if (!issue) {
+        if (!issue) {
+          await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            creatingMsg.message_id,
+            undefined,
+            '❌ <b>Failed to create Ticket</b>\nPlease try again later.',
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        const issueData: TelegramLinearIssue = {
+          chatId: ctx.chat.id,
+          username: ctx.from?.username,
+          firstName: ctx.from?.first_name,
+          lastName: ctx.from?.last_name,
+          team,
+          issueId: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          description,
+          status: issue.state?.name || 'Open',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await this.redis.hset(`issue:${issue.id}`, issueData);
+        await this.redis.sadd(`chat:${ctx.chat.id}:issues`, issue.id);
+
+        // Success message safely in HTML
+        const successMsg = `✅ <b>Issue Created Successfully!</b> ${issue.identifier} — ${issue.title}`;
+
+        await ctx.telegram.editMessageText(ctx.chat.id, creatingMsg.message_id, undefined, successMsg, {
+          parse_mode: 'HTML',
+        });
+      } catch (err: unknown) {
+        const error = err as { response?: { data?: unknown }; message?: string };
+        console.error('Error creating Ticket issue', error?.response?.data || error?.message);
+
         await ctx.telegram.editMessageText(
           ctx.chat.id,
           creatingMsg.message_id,
           undefined,
-          '❌ <b>Failed to create Ticket</b>\nPlease try again later.',
+          '<b>Failed to create ticket issue</b>\nPlease check your configuration and try again.',
           { parse_mode: 'HTML' },
         );
-        return;
       }
+    });
 
-      const issueData: TelegramLinearIssue = {
-        chatId: ctx.chat.id,
-        username: ctx.from?.username,
-        firstName: ctx.from?.first_name,
-        lastName: ctx.from?.last_name,
-        team,
-        issueId: issue.id,
-        identifier: issue.identifier,
-        title: issue.title,
-        description,
-        status: issue.state?.name || 'Open',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+    this.bot.catch((err) => {
+      console.error('Telegram bot error:', err);
+    });
 
-      await this.redis.hset(`issue:${issue.id}`, issueData);
-      await this.redis.sadd(`chat:${ctx.chat.id}:issues`, issue.id);
-
-      // Success message safely in HTML
-      const successMsg = `✅ <b>Issue Created Successfully!</b> ${issue.identifier} — ${issue.title}`;
-
-      await ctx.telegram.editMessageText(ctx.chat.id, creatingMsg.message_id, undefined, successMsg, {
-        parse_mode: 'HTML',
-      });
+    try {
+      await this.bot.launch();
+      console.info('Telegram bot polling started.');
     } catch (err: unknown) {
-      const error = err as { response?: { data?: unknown }; message?: string };
-      console.error('Error creating Ticket issue', error?.response?.data || error?.message);
-
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        creatingMsg.message_id,
-        undefined,
-        '<b>Failed to create ticket issue</b>\nPlease check your configuration and try again.',
-        { parse_mode: 'HTML' },
-      );
+      console.error('Failed to launch Telegram bot', err);
     }
-  });
-
-  this.bot.catch((err) => {
-    console.error('Telegram bot error:', err);
-  });
-
-  try {
-    await this.bot.launch();
-    console.info('Telegram bot polling started.');
-  } catch (err: unknown) {
-    console.error('Failed to launch Telegram bot', err);
   }
-}
 
 
   private getProgressBar(status: string): string {
@@ -279,15 +290,15 @@ Ready to track your tickets! 📝`;
   }
 
   async testRedis() {
-  try {
-    await this.redis.set('test_key', 'hello');
-    const value = await this.redis.get('test_key');
-    return value === 'hello';
-  } catch (err) {
-    console.error('Redis test failed:', err);
-    return false;
+    try {
+      await this.redis.set('test_key', 'hello');
+      const value = await this.redis.get('test_key');
+      return value === 'hello';
+    } catch (err) {
+      console.error('Redis test failed:', err);
+      return false;
+    }
   }
-}
 
 
   async updateIssueStatuss(issueId: string, status: string, comment?: { text: string; author: string; date?: string }) {
