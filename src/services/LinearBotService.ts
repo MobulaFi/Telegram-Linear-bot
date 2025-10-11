@@ -131,7 +131,7 @@ export default class LinearTrackerBot {
       const welcomeMsg = `🚀 <b>Welcome to ${this.brandName} Super Bot!</b>
 
 <b>Available Commands:</b>
-/${this.commandName} &lt;title&gt; | &lt;description&gt; — Create a new ticket
+/ticket &lt;title&gt; | &lt;description&gt; — Create a new ticket
 /help — Show this help message
 
 Ready to track your tickets! 📝`;
@@ -144,8 +144,8 @@ Ready to track your tickets! 📝`;
   const helpMsg = `📖 <b>${this.brandName} Super Bot Help</b>
 
 <b>Commands:</b>
-/${this.commandName} &lt;title&gt; | &lt;description&gt; — Create issue
-<i>Example: /${this.commandName} Fix login bug | Users can't login on mobile</i>
+/ticket &lt;title&gt; | &lt;description&gt; — Create issue
+<i>Example: /ticket Fix login bug | Users can't login on mobile</i>
 
 💡 <b>Tips:</b>
 • Use | to separate title and description`;
@@ -155,16 +155,16 @@ Ready to track your tickets! 📝`;
 
 
     // Ticket command
-    this.bot.command(this.commandName, async (ctx) => {
-      const args = ctx.message.text.replace(`/${this.commandName}`, '').trim();
+    this.bot.command('ticket', async (ctx) => {
+      const args = ctx.message.text.replace('/ticket', '').trim();
 
       if (!args) {
-        return ctx.reply(
-          `❌ <b>Usage:</b> /${this.commandName} &lt;title&gt; | &lt;description&gt;\n\n<b>Example:</b>\n/${this.commandName} Fix login issue | Users unable to authenticate`,
-          { parse_mode: 'HTML' },
-        );
-      }
-
+    return ctx.reply(
+      `❌ <b>Usage:</b> /ticket &lt;title&gt; | &lt;description&gt;
+\n\n<b>Example:</b>\n/ticket Fix login issue | Users unable to authenticate`,
+      { parse_mode: 'HTML' },
+    );
+  }
       const username = ctx.from?.username;
 
       if (!username || !this.allowedUsernames.has(username)) {
