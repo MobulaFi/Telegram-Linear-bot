@@ -51,3 +51,4 @@ bootstrap().catch((error) => {
   console.error('Bootstrap failed', error);
   process.exit(1);
 });
+// force redeploy Thu Jan  8 18:24:16 CET 2026
