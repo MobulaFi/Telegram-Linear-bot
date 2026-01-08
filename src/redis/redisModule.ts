@@ -8,7 +8,7 @@ import Redis from 'ioredis';
     {
       provide: 'REDIS',
       useFactory: () => {
-        const client = new Redis(process.env.REDIS_PRIMARY_URL || 'redis://localhost:6379', {
+        const client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
           connectTimeout: 10000, // 10s timeout
           retryStrategy(times) {
             const delay = Math.min(times * 50, 2000); // exponential backoff
