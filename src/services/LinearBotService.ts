@@ -118,7 +118,7 @@ export default class LinearTrackerBot {
 
     console.info('Starting Telegram bot...');
 
-    const token = process.env.TELEGRAM_ROOM_BOT_TOKEN;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) {
       console.error('❌ TELEGRAM_BOT_TOKEN is not set in environment variables');
       return;
