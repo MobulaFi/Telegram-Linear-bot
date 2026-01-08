@@ -2,8 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { type Context, Telegraf } from 'telegraf';
+import type { Message, Update } from 'telegraf/types';
 import type LinearTrackerBotConfig from 'src/config/LinearBotConfig';
 import type Redis from 'ioredis';
+import AIService from './AIService';
 
 interface TelegramLinearIssue {
   chatId: number;
@@ -25,12 +27,14 @@ interface TelegramLinearIssue {
 export default class LinearTrackerBot {
   private bot?: Telegraf<Context>;
   private isLaunched = false;
+  private botUsername?: string;
 
   private allowedUsernames: Set<string>;
 
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService<LinearTrackerBotConfig, true>,
     @Inject('REDIS') private readonly redis: Redis,
+    @Inject(AIService) private readonly aiService: AIService,
   ) {
     const usernames = this.config.get<string>('TELEGRAM_ALLOWED_USERNAMES') || '';
     console.log('Whitelisted usernames from env:', usernames);
@@ -263,15 +267,290 @@ Ready to track your tickets! 📝`;
       }
     });
 
+    // Handle mentions for AI-powered ticket creation
+    this.bot.on('message', async (ctx) => {
+      const message = ctx.message as Message.TextMessage;
+      
+      // Store message in chat history for context (keep last 20 messages)
+      if ('text' in message) {
+        const chatHistoryKey = `chat:${ctx.chat.id}:history`;
+        const msgData = JSON.stringify({
+          from: ctx.from?.username || ctx.from?.first_name || 'Unknown',
+          text: message.text,
+          timestamp: message.date,
+        });
+        await this.redis.lpush(chatHistoryKey, msgData);
+        await this.redis.ltrim(chatHistoryKey, 0, 19); // Keep only last 20 messages
+        await this.redis.expire(chatHistoryKey, 3600); // Expire after 1 hour
+      }
+      
+      if (!('text' in message)) {
+        return;
+      }
+
+      const text = message.text;
+      const botMentioned = this.isBotMentioned(text, message);
+
+      if (!botMentioned) {
+        return;
+      }
+
+      const username = ctx.from?.username;
+      if (!username || !this.allowedUsernames.has(username)) {
+        return ctx.reply(
+          '❌ You are not authorized to create issues.\nPlease contact the admin to get access.',
+          { parse_mode: 'HTML' },
+        );
+      }
+
+      // Remove bot mention from message
+      const cleanMessage = this.removeBotMention(text);
+      if (!cleanMessage.trim()) {
+        return ctx.reply(
+          `💡 <b>Mention me with a ticket request!</b>\n\nExample: @${this.botUsername} create a ticket for Sandy to fix the login bug on mobile`,
+          { parse_mode: 'HTML' },
+        );
+      }
+
+      const processingMsg = await ctx.reply('🤖 Analyzing your request with context...', { parse_mode: 'HTML' });
+
+      try {
+        // Get chat history for context
+        const chatHistoryKey = `chat:${ctx.chat.id}:history`;
+        const historyRaw = await this.redis.lrange(chatHistoryKey, 0, 19);
+        const chatHistory = historyRaw
+          .map((h) => {
+            try {
+              return JSON.parse(h) as { from: string; text: string; timestamp: number };
+            } catch {
+              return null;
+            }
+          })
+          .filter((h): h is { from: string; text: string; timestamp: number } => h !== null)
+          .reverse(); // Oldest first
+
+        // Get reply-to message if exists
+        let replyContext = '';
+        const replyToMessage = (message as Message.TextMessage & { reply_to_message?: Message.TextMessage }).reply_to_message;
+        if (replyToMessage && 'text' in replyToMessage) {
+          replyContext = `\n\n[Replying to message from ${replyToMessage.from?.username || replyToMessage.from?.first_name || 'Unknown'}]: "${replyToMessage.text}"`;
+        }
+
+        // Build context string
+        let contextString = '';
+        if (chatHistory.length > 1) {
+          contextString = '\n\n--- Recent chat history (for context) ---\n';
+          contextString += chatHistory
+            .slice(0, -1) // Exclude the current message
+            .map((h) => `${h.from}: ${h.text}`)
+            .join('\n');
+          contextString += '\n--- End of history ---';
+        }
+
+        const fullContext = cleanMessage + replyContext + contextString;
+
+        const parsed = await this.aiService.parseTicketRequest(fullContext);
+
+        if (!parsed || parsed.confidence < 0.5) {
+          await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            processingMsg.message_id,
+            undefined,
+            `❌ <b>Could not understand your request</b>\n\nTry something like:\n<i>"Create a ticket for Sandy to fix the login bug"</i>`,
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        // Get assignee ID if specified
+        let assigneeId: string | null = null;
+        if (parsed.assigneeName) {
+          assigneeId = await this.aiService.getUserIdByName(parsed.assigneeName);
+        }
+
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          processingMsg.message_id,
+          undefined,
+          '⏳ Creating ticket...',
+          { parse_mode: 'HTML' },
+        );
+
+        // Create the issue with optional assignee
+        const issue = await this.createLinearIssue(
+          parsed.title,
+          parsed.description,
+          assigneeId,
+        );
+
+        if (!issue) {
+          await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            processingMsg.message_id,
+            undefined,
+            '❌ <b>Failed to create ticket</b>\nPlease try again later.',
+            { parse_mode: 'HTML' },
+          );
+          return;
+        }
+
+        const team = ctx.chat.type === 'private' 
+          ? ctx.from?.username || 'PrivateChat' 
+          : ctx.chat.title || 'UnknownGroup';
+
+        // Store in Redis
+        const issueData: TelegramLinearIssue = {
+          chatId: ctx.chat.id,
+          username: ctx.from?.username,
+          firstName: ctx.from?.first_name,
+          lastName: ctx.from?.last_name,
+          team,
+          issueId: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          description: parsed.description,
+          status: issue.state?.name || 'Open',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await this.redis.hset(`issue:${issue.id}`, issueData);
+        await this.redis.sadd(`chat:${ctx.chat.id}:issues`, issue.id);
+
+        // Build comprehensive success message
+        const linearUrl = `https://linear.app/mobulalabs/issue/${issue.identifier}`;
+        const createdBy = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || 'Unknown';
+        const createdAt = new Date().toLocaleString('en-US', { 
+          dateStyle: 'medium', 
+          timeStyle: 'short' 
+        });
+
+        let successMsg = `✅ <b>Ticket Created Successfully!</b>\n\n`;
+        successMsg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+        successMsg += `🎫 <b>Ticket:</b> <a href="${linearUrl}">${issue.identifier}</a>\n`;
+        successMsg += `📌 <b>Title:</b> ${issue.title}\n`;
+        successMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        
+        successMsg += `📝 <b>Description:</b>\n<i>${parsed.description || 'No description'}</i>\n\n`;
+        
+        successMsg += `👤 <b>Assigned to:</b> ${parsed.assigneeName || 'Unassigned'}\n`;
+        successMsg += `📊 <b>Status:</b> ${issue.state?.name || 'Todo'}\n`;
+        successMsg += `👨‍💻 <b>Created by:</b> ${createdBy}\n`;
+        successMsg += `🕐 <b>Created at:</b> ${createdAt}\n\n`;
+        
+        successMsg += `🔗 <a href="${linearUrl}">View in Linear</a>`;
+
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          processingMsg.message_id,
+          undefined,
+          successMsg,
+          { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+        );
+      } catch (err) {
+        console.error('Error processing AI ticket request:', err);
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          processingMsg.message_id,
+          undefined,
+          '❌ <b>An error occurred</b>\nPlease try again.',
+          { parse_mode: 'HTML' },
+        );
+      }
+    });
+
     this.bot.catch((err) => {
       console.error('Telegram bot error:', err);
     });
 
     try {
+      // Get bot info BEFORE launching to have username available for handlers
+      const botInfo = await this.bot.telegram.getMe();
+      this.botUsername = botInfo.username;
+      console.info(`Bot username: @${this.botUsername}`);
+      
       await this.bot.launch();
-      console.info('Telegram bot polling started.');
+      console.info(`Telegram bot @${this.botUsername} polling started.`);
     } catch (err: unknown) {
       console.error('Failed to launch Telegram bot', err);
+    }
+  }
+
+  private isBotMentioned(text: string, message: Message.TextMessage): boolean {
+    // Check for @username mention
+    if (this.botUsername && text.toLowerCase().includes(`@${this.botUsername.toLowerCase()}`)) {
+      return true;
+    }
+
+    // Check for entity mentions
+    const entities = message.entities || [];
+    for (const entity of entities) {
+      if (entity.type === 'mention') {
+        const mentionText = text.substring(entity.offset, entity.offset + entity.length);
+        if (this.botUsername && mentionText.toLowerCase() === `@${this.botUsername.toLowerCase()}`) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private removeBotMention(text: string): string {
+    if (!this.botUsername) return text;
+    const regex = new RegExp(`@${this.botUsername}`, 'gi');
+    return text.replace(regex, '').trim();
+  }
+
+  private async createLinearIssue(
+    title: string,
+    description: string,
+    assigneeId: string | null,
+  ): Promise<{ id: string; identifier: string; title: string; state?: { name: string } } | null> {
+    try {
+      const escapedTitle = title.replace(/"/g, '\\"');
+      const escapedDescription = description.replace(/"/g, '\\"');
+      
+      let mutation = `
+        mutation {
+          issueCreate(input: {
+            title: "${escapedTitle}",
+            description: "${escapedDescription}",
+            teamId: "${this.config.get('LINEAR_TEAM_ID')}"`;
+      
+      if (assigneeId) {
+        mutation += `,
+            assigneeId: "${assigneeId}"`;
+      }
+      
+      mutation += `
+          }) {
+            success
+            issue {
+              id
+              identifier
+              title
+              state { name }
+              assignee { id name }
+            }
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      return res.data.data?.issueCreate?.issue || null;
+    } catch (err) {
+      console.error('Failed to create Linear issue:', err);
+      return null;
     }
   }
 

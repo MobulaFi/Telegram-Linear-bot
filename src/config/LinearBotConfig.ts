@@ -14,6 +14,7 @@ const LinearTrackerBotConfig = z.object({
     .optional()
     .transform((val) => (val?.toLowerCase() === 'true'))
     .default(() => false),
+  OPENAI_API_KEY: z.string(),
 });
 type LinearTrackerBotConfig = z.infer<typeof LinearTrackerBotConfig>;
 

@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import LinearTrackerBotConfig from './config/LinearBotConfig.js';
 import LinearTrackerBot from './services/LinearBotService.js';
+import AIService from './services/AIService.js';
 import { LinearWebhookController } from './controller/LinearWebhookController.js';
 import { RedisModule } from './redis/redisModule.js';
 
@@ -15,6 +16,6 @@ import { RedisModule } from './redis/redisModule.js';
     RedisModule
   ],
   controllers: [LinearWebhookController],
-  providers: [LinearTrackerBot],
+  providers: [AIService, LinearTrackerBot],
 })
 export default class AppModule {}
