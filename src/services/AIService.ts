@@ -18,6 +18,18 @@ interface ParsedTicketRequest {
   confidence: number;
 }
 
+type ActionType = 'create' | 'edit' | 'cancel' | 'assign' | 'status';
+
+interface ParsedCommand {
+  action: ActionType;
+  ticketIdentifier: string | null; // e.g., "MOB-1234" or null for create
+  assigneeName: string | null;
+  newStatus: string | null;
+  title: string | null;
+  description: string | null;
+  confidence: number;
+}
+
 @Injectable()
 export default class AIService {
   private linearUsers: LinearUser[] = [];
@@ -195,6 +207,99 @@ Rules:
 
   getLinearUsers(): LinearUser[] {
     return this.linearUsers;
+  }
+
+  async parseCommand(message: string, recentTickets: string[]): Promise<ParsedCommand | null> {
+    await this.fetchLinearUsers();
+    
+    const userListForAI = USER_MAPPINGS.map((u) => 
+      `- ${u.linearName} (aliases: ${u.aliases.join(', ')}, telegram: @${u.telegramUsername})`
+    ).join('\n');
+
+    const ticketContext = recentTickets.length > 0 
+      ? `Recent tickets mentioned in this chat:\n${recentTickets.join('\n')}`
+      : 'No recent tickets in context.';
+
+    const systemPrompt = `You are an assistant that parses Telegram messages to understand what action the user wants to perform on Linear tickets.
+
+Available actions:
+- "create": Create a new ticket
+- "edit": Edit an existing ticket (will provide a link)
+- "cancel": Cancel/archive an existing ticket
+- "assign": Change the assignee of a ticket
+- "status": Change the status of a ticket
+
+Available team members for assignment:
+${userListForAI}
+
+Available statuses: Todo, In Progress, In Review, Done, Cancelled
+
+${ticketContext}
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "action": "create" | "edit" | "cancel" | "assign" | "status",
+  "ticketIdentifier": "MOB-1234 or null",
+  "assigneeName": "linearName or null",
+  "newStatus": "status name or null",
+  "title": "ticket title for create action or null",
+  "description": "ticket description for create action or null",
+  "confidence": 0.0 to 1.0
+}
+
+Rules:
+- For "create": provide title, description, and optionally assigneeName
+- For "edit", "cancel": identify the ticket from context or message (e.g., "this ticket", "MOB-1234", "the last ticket")
+- For "assign": identify the ticket AND the new assignee
+- For "status": identify the ticket AND the new status
+- If the user says "this ticket", "ce ticket", "le ticket", look at recent tickets context
+- If you can't determine the ticket, set ticketIdentifier to the most recent one from context
+- Match assignee by any alias, telegram username, or name. Return the linearName.
+- If the message is unclear, set confidence to 0`;
+
+    try {
+      const res = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message },
+          ],
+          temperature: 0.3,
+          max_tokens: 500,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.config.get('OPENAI_API_KEY')}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const content = res.data.choices?.[0]?.message?.content;
+      if (!content) return null;
+
+      const parsed = JSON.parse(content) as ParsedCommand;
+      
+      // Validate and match assignee if present
+      if (parsed.assigneeName) {
+        const matchedUser = this.findUserByName(parsed.assigneeName);
+        if (matchedUser) {
+          parsed.assigneeName = matchedUser.name;
+        }
+      }
+
+      return parsed;
+    } catch (err: unknown) {
+      const error = err as { response?: { status?: number; data?: unknown }; message?: string };
+      console.error('Failed to parse command with AI:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+      return null;
+    }
   }
 }
 

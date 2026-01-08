@@ -267,7 +267,7 @@ Ready to track your tickets! 📝`;
       }
     });
 
-    // Handle mentions for AI-powered ticket creation
+    // Handle mentions for AI-powered ticket operations
     this.bot.on('message', async (ctx) => {
       const message = ctx.message as Message.TextMessage;
       
@@ -298,7 +298,7 @@ Ready to track your tickets! 📝`;
       const username = ctx.from?.username;
       if (!username || !this.allowedUsernames.has(username)) {
         return ctx.reply(
-          '❌ You are not authorized to create issues.\nPlease contact the admin to get access.',
+          '❌ You are not authorized to use this bot.\nPlease contact the admin to get access.',
           { parse_mode: 'HTML' },
         );
       }
@@ -307,14 +307,31 @@ Ready to track your tickets! 📝`;
       const cleanMessage = this.removeBotMention(text);
       if (!cleanMessage.trim()) {
         return ctx.reply(
-          `💡 <b>Mention me with a ticket request!</b>\n\nExample: @${this.botUsername} create a ticket for Sandy to fix the login bug on mobile`,
+          `💡 <b>How to use me:</b>\n\n` +
+          `📝 <b>Create:</b> <i>"create a ticket for Sandy to fix the login bug"</i>\n` +
+          `✏️ <b>Edit:</b> <i>"edit this ticket"</i> or <i>"edit MOB-1234"</i>\n` +
+          `❌ <b>Cancel:</b> <i>"cancel this ticket"</i>\n` +
+          `👤 <b>Assign:</b> <i>"assign this ticket to Cyril"</i>\n` +
+          `📊 <b>Status:</b> <i>"set this ticket to In Progress"</i>`,
           { parse_mode: 'HTML' },
         );
       }
 
-      const processingMsg = await ctx.reply('🤖 Analyzing your request with context...', { parse_mode: 'HTML' });
+      const processingMsg = await ctx.reply('🤖 Analyzing your request...', { parse_mode: 'HTML' });
 
       try {
+        // Get recent tickets from this chat for context
+        const chatIssuesKey = `chat:${ctx.chat.id}:issues`;
+        const recentIssueIds = await this.redis.smembers(chatIssuesKey);
+        const recentTickets: string[] = [];
+        
+        for (const issueId of recentIssueIds.slice(0, 5)) {
+          const issueData = await this.redis.hgetall(`issue:${issueId}`);
+          if (issueData?.identifier) {
+            recentTickets.push(`${issueData.identifier}: ${issueData.title || 'No title'}`);
+          }
+        }
+
         // Get chat history for context
         const chatHistoryKey = `chat:${ctx.chat.id}:history`;
         const historyRaw = await this.redis.lrange(chatHistoryKey, 0, 19);
@@ -327,7 +344,7 @@ Ready to track your tickets! 📝`;
             }
           })
           .filter((h): h is { from: string; text: string; timestamp: number } => h !== null)
-          .reverse(); // Oldest first
+          .reverse();
 
         // Get reply-to message if exists
         let replyContext = '';
@@ -339,9 +356,9 @@ Ready to track your tickets! 📝`;
         // Build context string
         let contextString = '';
         if (chatHistory.length > 1) {
-          contextString = '\n\n--- Recent chat history (for context) ---\n';
+          contextString = '\n\n--- Recent chat history ---\n';
           contextString += chatHistory
-            .slice(0, -1) // Exclude the current message
+            .slice(0, -1)
             .map((h) => `${h.from}: ${h.text}`)
             .join('\n');
           contextString += '\n--- End of history ---';
@@ -349,117 +366,44 @@ Ready to track your tickets! 📝`;
 
         const fullContext = cleanMessage + replyContext + contextString;
 
-        const parsed = await this.aiService.parseTicketRequest(fullContext);
+        // Parse the command using AI
+        const command = await this.aiService.parseCommand(fullContext, recentTickets);
 
-        if (!parsed || parsed.confidence < 0.5) {
+        if (!command || command.confidence < 0.5) {
           await ctx.telegram.editMessageText(
             ctx.chat.id,
             processingMsg.message_id,
             undefined,
-            `❌ <b>Could not understand your request</b>\n\nTry something like:\n<i>"Create a ticket for Sandy to fix the login bug"</i>`,
+            `❌ <b>Could not understand your request</b>\n\nTry something like:\n` +
+            `<i>"Create a ticket for Sandy to fix the login bug"</i>\n` +
+            `<i>"Cancel this ticket"</i>\n` +
+            `<i>"Assign MOB-1234 to Cyril"</i>`,
             { parse_mode: 'HTML' },
           );
           return;
         }
 
-        // Get assignee ID if specified
-        let assigneeId: string | null = null;
-        if (parsed.assigneeName) {
-          assigneeId = await this.aiService.getUserIdByName(parsed.assigneeName);
+        // Handle different actions
+        switch (command.action) {
+          case 'edit':
+            await this.handleEditAction(ctx, processingMsg.message_id, command.ticketIdentifier);
+            break;
+          case 'cancel':
+            await this.handleCancelAction(ctx, processingMsg.message_id, command.ticketIdentifier);
+            break;
+          case 'assign':
+            await this.handleAssignAction(ctx, processingMsg.message_id, command.ticketIdentifier, command.assigneeName);
+            break;
+          case 'status':
+            await this.handleStatusAction(ctx, processingMsg.message_id, command.ticketIdentifier, command.newStatus);
+            break;
+          case 'create':
+          default:
+            await this.handleCreateAction(ctx, processingMsg.message_id, command);
+            break;
         }
-
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
-          processingMsg.message_id,
-          undefined,
-          '⏳ Creating ticket...',
-          { parse_mode: 'HTML' },
-        );
-
-        // Create the issue with optional assignee
-        const issue = await this.createLinearIssue(
-          parsed.title,
-          parsed.description,
-          assigneeId,
-        );
-
-        if (!issue) {
-          await ctx.telegram.editMessageText(
-            ctx.chat.id,
-            processingMsg.message_id,
-            undefined,
-            '❌ <b>Failed to create ticket</b>\nPlease try again later.',
-            { parse_mode: 'HTML' },
-          );
-          return;
-        }
-
-        const team = ctx.chat.type === 'private' 
-          ? ctx.from?.username || 'PrivateChat' 
-          : ctx.chat.title || 'UnknownGroup';
-
-        // Store in Redis
-        const issueData: TelegramLinearIssue = {
-          chatId: ctx.chat.id,
-          username: ctx.from?.username,
-          firstName: ctx.from?.first_name,
-          lastName: ctx.from?.last_name,
-          team,
-          issueId: issue.id,
-          identifier: issue.identifier,
-          title: issue.title,
-          description: parsed.description,
-          status: issue.state?.name || 'Open',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        await this.redis.hset(`issue:${issue.id}`, issueData);
-        await this.redis.sadd(`chat:${ctx.chat.id}:issues`, issue.id);
-
-        // Build comprehensive success message
-        const linearUrl = `https://linear.app/mobulalabs/issue/${issue.identifier}`;
-        const createdBy = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || 'Unknown';
-        const createdAt = new Date().toLocaleString('en-US', { 
-          dateStyle: 'medium', 
-          timeStyle: 'short' 
-        });
-
-        let successMsg = `✅ <b>Ticket Created Successfully!</b>\n\n`;
-        successMsg += `━━━━━━━━━━━━━━━━━━━━━\n`;
-        successMsg += `🎫 <b>Ticket:</b> <a href="${linearUrl}">${issue.identifier}</a>\n`;
-        successMsg += `📌 <b>Title:</b> ${issue.title}\n`;
-        successMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-        
-        successMsg += `📝 <b>Description:</b>\n<i>${parsed.description || 'No description'}</i>\n\n`;
-        
-        successMsg += `👤 <b>Assigned to:</b> ${parsed.assigneeName || 'Unassigned'}\n`;
-        successMsg += `📊 <b>Status:</b> ${issue.state?.name || 'Todo'}\n`;
-        successMsg += `👨‍💻 <b>Created by:</b> ${createdBy}\n`;
-        successMsg += `🕐 <b>Created at:</b> ${createdAt}\n\n`;
-        
-        successMsg += `🔗 <a href="${linearUrl}">View in Linear</a>`;
-
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
-          processingMsg.message_id,
-          undefined,
-          successMsg,
-          { 
-            parse_mode: 'HTML', 
-            link_preview_options: { is_disabled: true },
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '✏️ Edit', callback_data: `edit_${issue.identifier}` },
-                  { text: '❌ Cancel', callback_data: `cancel_${issue.id}` },
-                ],
-              ],
-            },
-          },
-        );
       } catch (err) {
-        console.error('Error processing AI ticket request:', err);
+        console.error('Error processing command:', err);
         await ctx.telegram.editMessageText(
           ctx.chat.id,
           processingMsg.message_id,
@@ -470,7 +414,7 @@ Ready to track your tickets! 📝`;
       }
     });
 
-    // Handle Edit button
+    // Handle Edit button callback
     this.bot.action(/^edit_(.+)$/, async (ctx) => {
       const issueIdentifier = ctx.match[1];
       const linearUrl = `https://linear.app/mobulalabs/issue/${issueIdentifier}`;
@@ -482,12 +426,11 @@ Ready to track your tickets! 📝`;
       );
     });
 
-    // Handle Cancel button
+    // Handle Cancel button callback
     this.bot.action(/^cancel_(.+)$/, async (ctx) => {
       const issueId = ctx.match[1];
       
       try {
-        // Cancel/Archive the issue in Linear
         const mutation = `
           mutation {
             issueArchive(id: "${issueId}") {
@@ -512,8 +455,6 @@ Ready to track your tickets! 📝`;
             '🗑️ <b>Ticket Cancelled</b>\n\nThis ticket has been archived.',
             { parse_mode: 'HTML' },
           );
-          
-          // Remove from Redis
           await this.redis.del(`issue:${issueId}`);
         } else {
           await ctx.answerCbQuery('Failed to cancel ticket');
@@ -529,7 +470,6 @@ Ready to track your tickets! 📝`;
     });
 
     try {
-      // Get bot info BEFORE launching to have username available for handlers
       const botInfo = await this.bot.telegram.getMe();
       this.botUsername = botInfo.username;
       console.info(`Bot username: @${this.botUsername}`);
@@ -538,6 +478,483 @@ Ready to track your tickets! 📝`;
       console.info(`Telegram bot @${this.botUsername} polling started.`);
     } catch (err: unknown) {
       console.error('Failed to launch Telegram bot', err);
+    }
+  }
+
+  // Action handlers
+  private async handleEditAction(
+    ctx: Context,
+    messageId: number,
+    ticketIdentifier: string | null,
+  ): Promise<void> {
+    if (!ticketIdentifier) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the ticket</b>\n\nPlease specify the ticket (e.g., "edit MOB-1234")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    const linearUrl = `https://linear.app/mobulalabs/issue/${ticketIdentifier}`;
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      messageId,
+      undefined,
+      `✏️ <b>Edit Ticket ${ticketIdentifier}</b>\n\n🔗 <a href="${linearUrl}">Open in Linear to edit</a>`,
+      { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+    );
+  }
+
+  private async handleCancelAction(
+    ctx: Context,
+    messageId: number,
+    ticketIdentifier: string | null,
+  ): Promise<void> {
+    if (!ticketIdentifier) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the ticket</b>\n\nPlease specify the ticket (e.g., "cancel MOB-1234")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    try {
+      // First get the issue ID from identifier
+      const issueId = await this.getIssueIdFromIdentifier(ticketIdentifier);
+      if (!issueId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Ticket ${ticketIdentifier} not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      const mutation = `
+        mutation {
+          issueArchive(id: "${issueId}") {
+            success
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (res.data.data?.issueArchive?.success) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `🗑️ <b>Ticket ${ticketIdentifier} Cancelled</b>\n\nThis ticket has been archived.`,
+          { parse_mode: 'HTML' },
+        );
+        await this.redis.del(`issue:${issueId}`);
+      } else {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Failed to cancel ticket ${ticketIdentifier}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to cancel ticket:', err);
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Error cancelling ticket</b>',
+        { parse_mode: 'HTML' },
+      );
+    }
+  }
+
+  private async handleAssignAction(
+    ctx: Context,
+    messageId: number,
+    ticketIdentifier: string | null,
+    assigneeName: string | null,
+  ): Promise<void> {
+    if (!ticketIdentifier) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the ticket</b>\n\nPlease specify the ticket (e.g., "assign MOB-1234 to Cyril")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    if (!assigneeName) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the assignee</b>\n\nPlease specify who to assign (e.g., "assign MOB-1234 to Cyril")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    try {
+      const issueId = await this.getIssueIdFromIdentifier(ticketIdentifier);
+      if (!issueId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Ticket ${ticketIdentifier} not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      const assigneeId = await this.aiService.getUserIdByName(assigneeName);
+      if (!assigneeId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>User "${assigneeName}" not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      const mutation = `
+        mutation {
+          issueUpdate(id: "${issueId}", input: { assigneeId: "${assigneeId}" }) {
+            success
+            issue { assignee { name } }
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (res.data.data?.issueUpdate?.success) {
+        const newAssignee = res.data.data.issueUpdate.issue?.assignee?.name || assigneeName;
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `✅ <b>Ticket ${ticketIdentifier} assigned to ${newAssignee}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      } else {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Failed to assign ticket ${ticketIdentifier}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to assign ticket:', err);
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Error assigning ticket</b>',
+        { parse_mode: 'HTML' },
+      );
+    }
+  }
+
+  private async handleStatusAction(
+    ctx: Context,
+    messageId: number,
+    ticketIdentifier: string | null,
+    newStatus: string | null,
+  ): Promise<void> {
+    if (!ticketIdentifier) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the ticket</b>\n\nPlease specify the ticket (e.g., "set MOB-1234 to In Progress")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    if (!newStatus) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the status</b>\n\nAvailable: Todo, In Progress, In Review, Done, Cancelled',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    try {
+      const issueId = await this.getIssueIdFromIdentifier(ticketIdentifier);
+      if (!issueId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Ticket ${ticketIdentifier} not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      // Get workflow states for the team
+      const stateId = await this.getStateIdByName(newStatus);
+      if (!stateId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Status "${newStatus}" not found</b>\n\nAvailable: Todo, In Progress, In Review, Done, Cancelled`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      const mutation = `
+        mutation {
+          issueUpdate(id: "${issueId}", input: { stateId: "${stateId}" }) {
+            success
+            issue { state { name } }
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (res.data.data?.issueUpdate?.success) {
+        const updatedStatus = res.data.data.issueUpdate.issue?.state?.name || newStatus;
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `✅ <b>Ticket ${ticketIdentifier} updated to "${updatedStatus}"</b>`,
+          { parse_mode: 'HTML' },
+        );
+      } else {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Failed to update ticket ${ticketIdentifier}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to update ticket status:', err);
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Error updating ticket status</b>',
+        { parse_mode: 'HTML' },
+      );
+    }
+  }
+
+  private async handleCreateAction(
+    ctx: Context,
+    messageId: number,
+    command: { title: string | null; description: string | null; assigneeName: string | null },
+  ): Promise<void> {
+    if (!command.title) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not determine ticket title</b>\n\nPlease be more specific about what the ticket should be.',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    let assigneeId: string | null = null;
+    if (command.assigneeName) {
+      assigneeId = await this.aiService.getUserIdByName(command.assigneeName);
+    }
+
+    const issue = await this.createLinearIssue(
+      command.title,
+      command.description || '',
+      assigneeId,
+    );
+
+    if (!issue) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Failed to create ticket</b>\nPlease try again later.',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    const chatType = ctx.chat!.type;
+    const team = chatType === 'private' 
+      ? ctx.from?.username || 'PrivateChat' 
+      : (ctx.chat as { title?: string }).title || 'UnknownGroup';
+
+    // Store in Redis
+    const issueData: TelegramLinearIssue = {
+      chatId: ctx.chat!.id,
+      username: ctx.from?.username,
+      firstName: ctx.from?.first_name,
+      lastName: ctx.from?.last_name,
+      team,
+      issueId: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      description: command.description || '',
+      status: issue.state?.name || 'Open',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.redis.hset(`issue:${issue.id}`, issueData);
+    await this.redis.sadd(`chat:${ctx.chat!.id}:issues`, issue.id);
+
+    // Build comprehensive success message
+    const linearUrl = `https://linear.app/mobulalabs/issue/${issue.identifier}`;
+    const createdBy = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || 'Unknown';
+    const createdAt = new Date().toLocaleString('en-US', { 
+      dateStyle: 'medium', 
+      timeStyle: 'short' 
+    });
+
+    let successMsg = `✅ <b>Ticket Created Successfully!</b>\n\n`;
+    successMsg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    successMsg += `🎫 <b>Ticket:</b> <a href="${linearUrl}">${issue.identifier}</a>\n`;
+    successMsg += `📌 <b>Title:</b> ${issue.title}\n`;
+    successMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    successMsg += `📝 <b>Description:</b>\n<i>${command.description || 'No description'}</i>\n\n`;
+    
+    successMsg += `👤 <b>Assigned to:</b> ${command.assigneeName || 'Unassigned'}\n`;
+    successMsg += `📊 <b>Status:</b> ${issue.state?.name || 'Todo'}\n`;
+    successMsg += `👨‍💻 <b>Created by:</b> ${createdBy}\n`;
+    successMsg += `🕐 <b>Created at:</b> ${createdAt}\n\n`;
+    
+    successMsg += `🔗 <a href="${linearUrl}">View in Linear</a>`;
+
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      messageId,
+      undefined,
+      successMsg,
+      { 
+        parse_mode: 'HTML', 
+        link_preview_options: { is_disabled: true },
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✏️ Edit', callback_data: `edit_${issue.identifier}` },
+              { text: '❌ Cancel', callback_data: `cancel_${issue.id}` },
+            ],
+          ],
+        },
+      },
+    );
+  }
+
+  private async getIssueIdFromIdentifier(identifier: string): Promise<string | null> {
+    try {
+      const query = `
+        query {
+          issue(id: "${identifier}") {
+            id
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      return res.data.data?.issue?.id || null;
+    } catch (err) {
+      console.error('Failed to get issue ID from identifier:', err);
+      return null;
+    }
+  }
+
+  private async getStateIdByName(statusName: string): Promise<string | null> {
+    try {
+      const query = `
+        query {
+          workflowStates(filter: { team: { id: { eq: "${this.config.get('LINEAR_TEAM_ID')}" } } }) {
+            nodes {
+              id
+              name
+            }
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const states = res.data.data?.workflowStates?.nodes as { id: string; name: string }[] | undefined;
+      if (!states) return null;
+
+      const normalizedStatus = statusName.toLowerCase().trim();
+      const matchedState = states.find((s) => s.name.toLowerCase() === normalizedStatus);
+      return matchedState?.id || null;
+    } catch (err) {
+      console.error('Failed to get state ID by name:', err);
+      return null;
     }
   }
 
