@@ -445,7 +445,18 @@ Ready to track your tickets! 📝`;
           processingMsg.message_id,
           undefined,
           successMsg,
-          { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+          { 
+            parse_mode: 'HTML', 
+            link_preview_options: { is_disabled: true },
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '✏️ Edit', callback_data: `edit_${issue.identifier}` },
+                  { text: '❌ Cancel', callback_data: `cancel_${issue.id}` },
+                ],
+              ],
+            },
+          },
         );
       } catch (err) {
         console.error('Error processing AI ticket request:', err);
@@ -456,6 +467,60 @@ Ready to track your tickets! 📝`;
           '❌ <b>An error occurred</b>\nPlease try again.',
           { parse_mode: 'HTML' },
         );
+      }
+    });
+
+    // Handle Edit button
+    this.bot.action(/^edit_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      const linearUrl = `https://linear.app/mobulalabs/issue/${issueIdentifier}`;
+      
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        `✏️ <b>Edit Ticket</b>\n\nTo edit this ticket, please visit Linear directly:\n🔗 <a href="${linearUrl}">Open in Linear</a>`,
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+      );
+    });
+
+    // Handle Cancel button
+    this.bot.action(/^cancel_(.+)$/, async (ctx) => {
+      const issueId = ctx.match[1];
+      
+      try {
+        // Cancel/Archive the issue in Linear
+        const mutation = `
+          mutation {
+            issueArchive(id: "${issueId}") {
+              success
+            }
+          }`;
+
+        const res = await axios.post(
+          this.config.get('LINEAR_API_URL'),
+          { query: mutation },
+          {
+            headers: {
+              Authorization: this.config.get('LINEAR_API_KEY'),
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+
+        if (res.data.data?.issueArchive?.success) {
+          await ctx.answerCbQuery('Ticket cancelled!');
+          await ctx.editMessageText(
+            '🗑️ <b>Ticket Cancelled</b>\n\nThis ticket has been archived.',
+            { parse_mode: 'HTML' },
+          );
+          
+          // Remove from Redis
+          await this.redis.del(`issue:${issueId}`);
+        } else {
+          await ctx.answerCbQuery('Failed to cancel ticket');
+        }
+      } catch (err) {
+        console.error('Failed to cancel ticket:', err);
+        await ctx.answerCbQuery('Error cancelling ticket');
       }
     });
 

@@ -138,8 +138,13 @@ Rules:
       }
 
       return parsed;
-    } catch (err) {
-      console.error('Failed to parse ticket request with AI:', err);
+    } catch (err: unknown) {
+      const error = err as { response?: { status?: number; data?: unknown }; message?: string };
+      console.error('Failed to parse ticket request with AI:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
       return null;
     }
   }
