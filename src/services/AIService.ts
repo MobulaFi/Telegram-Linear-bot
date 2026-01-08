@@ -19,6 +19,7 @@ interface ParsedTicketRequest {
 }
 
 type ActionType = 'create' | 'edit' | 'cancel' | 'assign' | 'status';
+type EditField = 'title' | 'description' | 'assignee' | 'status' | 'menu' | null;
 
 interface ParsedCommand {
   action: ActionType;
@@ -27,6 +28,8 @@ interface ParsedCommand {
   newStatus: string | null;
   title: string | null;
   description: string | null;
+  editField: EditField; // What field to edit (for edit action)
+  newValue: string | null; // New value for the field being edited
   confidence: number;
 }
 
@@ -224,10 +227,10 @@ Rules:
 
 Available actions:
 - "create": Create a new ticket
-- "edit": Edit an existing ticket (will provide a link)
+- "edit": Edit an existing ticket (can edit title, description, assignee, or status directly)
 - "cancel": Cancel/archive an existing ticket
-- "assign": Change the assignee of a ticket
-- "status": Change the status of a ticket
+- "assign": Change the assignee of a ticket (shortcut for edit assignee)
+- "status": Change the status of a ticket (shortcut for edit status)
 
 Available team members for assignment:
 ${userListForAI}
@@ -244,14 +247,23 @@ Respond ONLY with valid JSON in this exact format:
   "newStatus": "status name or null",
   "title": "ticket title for create action or null",
   "description": "ticket description for create action or null",
+  "editField": "title" | "description" | "assignee" | "status" | "menu" | null,
+  "newValue": "the new value for the field being edited or null",
   "confidence": 0.0 to 1.0
 }
 
 Rules:
 - For "create": provide title, description, and optionally assigneeName
-- For "edit", "cancel": identify the ticket from context or message (e.g., "this ticket", "MOB-1234", "the last ticket")
-- For "assign": identify the ticket AND the new assignee
-- For "status": identify the ticket AND the new status
+- For "edit": 
+  - If user specifies what to edit (e.g., "edit the title to X"), set editField and newValue
+  - If user just says "edit this ticket" without specifying, set editField to "menu" (will show interactive menu)
+  - Examples:
+    - "edit titre MOB-1234 : Fix bug" -> editField: "title", newValue: "Fix bug"
+    - "change la description de ce ticket : nouvelle desc" -> editField: "description", newValue: "nouvelle desc"
+    - "edit this ticket" -> editField: "menu"
+- For "cancel": identify the ticket from context or message
+- For "assign": identify the ticket AND the new assignee (this is a shortcut, internally uses edit)
+- For "status": identify the ticket AND the new status (this is a shortcut, internally uses edit)
 - If the user says "this ticket", "ce ticket", "le ticket", look at recent tickets context
 - If you can't determine the ticket, set ticketIdentifier to the most recent one from context
 - Match assignee by any alias, telegram username, or name. Return the linearName.

@@ -386,7 +386,7 @@ Ready to track your tickets! 📝`;
         // Handle different actions
         switch (command.action) {
           case 'edit':
-            await this.handleEditAction(ctx, processingMsg.message_id, command.ticketIdentifier);
+            await this.handleEditAction(ctx, processingMsg.message_id, command.ticketIdentifier, command.editField, command.newValue, command.assigneeName);
             break;
           case 'cancel':
             await this.handleCancelAction(ctx, processingMsg.message_id, command.ticketIdentifier);
@@ -414,16 +414,148 @@ Ready to track your tickets! 📝`;
       }
     });
 
-    // Handle Edit button callback
+    // Handle Edit button callback - show menu
     this.bot.action(/^edit_(.+)$/, async (ctx) => {
       const issueIdentifier = ctx.match[1];
-      const linearUrl = `https://linear.app/mobulalabs/issue/${issueIdentifier}`;
       
       await ctx.answerCbQuery();
       await ctx.reply(
-        `✏️ <b>Edit Ticket</b>\n\nTo edit this ticket, please visit Linear directly:\n🔗 <a href="${linearUrl}">Open in Linear</a>`,
-        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+        `✏️ <b>Edit Ticket ${issueIdentifier}</b>\n\nWhat would you like to edit?`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📌 Title', callback_data: `editfield_title_${issueIdentifier}` },
+                { text: '📝 Description', callback_data: `editfield_desc_${issueIdentifier}` },
+              ],
+              [
+                { text: '👤 Assignee', callback_data: `editfield_assignee_${issueIdentifier}` },
+                { text: '📊 Status', callback_data: `editfield_status_${issueIdentifier}` },
+              ],
+              [
+                { text: '🔗 Open in Linear', url: `https://linear.app/mobulalabs/issue/${issueIdentifier}` },
+              ],
+            ],
+          },
+        },
       );
+    });
+
+    // Handle edit field selection - Title
+    this.bot.action(/^editfield_title_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(
+        `📌 <b>Edit Title for ${issueIdentifier}</b>\n\nReply to this message with the new title, or use:\n<code>@${this.botUsername} edit titre ${issueIdentifier} : New Title</code>`,
+        { parse_mode: 'HTML' },
+      );
+      // Store pending edit in Redis
+      await this.redis.setex(`pending_edit:${ctx.chat!.id}`, 300, JSON.stringify({ 
+        field: 'title', 
+        identifier: issueIdentifier 
+      }));
+    });
+
+    // Handle edit field selection - Description
+    this.bot.action(/^editfield_desc_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(
+        `📝 <b>Edit Description for ${issueIdentifier}</b>\n\nReply to this message with the new description, or use:\n<code>@${this.botUsername} edit description ${issueIdentifier} : New description</code>`,
+        { parse_mode: 'HTML' },
+      );
+      await this.redis.setex(`pending_edit:${ctx.chat!.id}`, 300, JSON.stringify({ 
+        field: 'description', 
+        identifier: issueIdentifier 
+      }));
+    });
+
+    // Handle edit field selection - Assignee
+    this.bot.action(/^editfield_assignee_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(
+        `👤 <b>Change Assignee for ${issueIdentifier}</b>\n\nUse:\n<code>@${this.botUsername} assign ${issueIdentifier} to [name]</code>\n\nExample: <code>@${this.botUsername} assign ${issueIdentifier} to florent</code>`,
+        { parse_mode: 'HTML' },
+      );
+    });
+
+    // Handle edit field selection - Status
+    this.bot.action(/^editfield_status_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        `📊 <b>Change Status for ${issueIdentifier}</b>\n\nSelect new status:`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📋 Todo', callback_data: `setstatus_Todo_${issueIdentifier}` },
+                { text: '🔄 In Progress', callback_data: `setstatus_In Progress_${issueIdentifier}` },
+              ],
+              [
+                { text: '👀 In Review', callback_data: `setstatus_In Review_${issueIdentifier}` },
+                { text: '✅ Done', callback_data: `setstatus_Done_${issueIdentifier}` },
+              ],
+            ],
+          },
+        },
+      );
+    });
+
+    // Handle status change from menu
+    this.bot.action(/^setstatus_(.+)_([A-Z]+-\d+)$/, async (ctx) => {
+      const newStatus = ctx.match[1];
+      const issueIdentifier = ctx.match[2];
+      
+      await ctx.answerCbQuery('Updating status...');
+      
+      try {
+        const issueId = await this.getIssueIdFromIdentifier(issueIdentifier);
+        if (!issueId) {
+          await ctx.editMessageText(`❌ <b>Ticket ${issueIdentifier} not found</b>`, { parse_mode: 'HTML' });
+          return;
+        }
+
+        const stateId = await this.getStateIdByName(newStatus);
+        if (!stateId) {
+          await ctx.editMessageText(`❌ <b>Status "${newStatus}" not found</b>`, { parse_mode: 'HTML' });
+          return;
+        }
+
+        const mutation = `
+          mutation {
+            issueUpdate(id: "${issueId}", input: { stateId: "${stateId}" }) {
+              success
+              issue { state { name } }
+            }
+          }`;
+
+        const res = await axios.post(
+          this.config.get('LINEAR_API_URL'),
+          { query: mutation },
+          {
+            headers: {
+              Authorization: this.config.get('LINEAR_API_KEY'),
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+
+        if (res.data.data?.issueUpdate?.success) {
+          await ctx.editMessageText(
+            `✅ <b>Ticket ${issueIdentifier} updated to "${newStatus}"</b>`,
+            { parse_mode: 'HTML' },
+          );
+        } else {
+          await ctx.editMessageText(`❌ <b>Failed to update status</b>`, { parse_mode: 'HTML' });
+        }
+      } catch (err) {
+        console.error('Failed to update status from menu:', err);
+        await ctx.editMessageText(`❌ <b>Error updating status</b>`, { parse_mode: 'HTML' });
+      }
     });
 
     // Handle Cancel button callback
@@ -486,6 +618,9 @@ Ready to track your tickets! 📝`;
     ctx: Context,
     messageId: number,
     ticketIdentifier: string | null,
+    editField: string | null,
+    newValue: string | null,
+    assigneeName: string | null,
   ): Promise<void> {
     if (!ticketIdentifier) {
       await ctx.telegram.editMessageText(
@@ -498,14 +633,180 @@ Ready to track your tickets! 📝`;
       return;
     }
 
-    const linearUrl = `https://linear.app/mobulalabs/issue/${ticketIdentifier}`;
-    await ctx.telegram.editMessageText(
-      ctx.chat!.id,
-      messageId,
-      undefined,
-      `✏️ <b>Edit Ticket ${ticketIdentifier}</b>\n\n🔗 <a href="${linearUrl}">Open in Linear to edit</a>`,
-      { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
-    );
+    // If no specific field or "menu", show interactive menu
+    if (!editField || editField === 'menu') {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        `✏️ <b>Edit Ticket ${ticketIdentifier}</b>\n\nWhat would you like to edit?`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📌 Title', callback_data: `editfield_title_${ticketIdentifier}` },
+                { text: '📝 Description', callback_data: `editfield_desc_${ticketIdentifier}` },
+              ],
+              [
+                { text: '👤 Assignee', callback_data: `editfield_assignee_${ticketIdentifier}` },
+                { text: '📊 Status', callback_data: `editfield_status_${ticketIdentifier}` },
+              ],
+              [
+                { text: '🔗 Open in Linear', url: `https://linear.app/mobulalabs/issue/${ticketIdentifier}` },
+              ],
+            ],
+          },
+        },
+      );
+      return;
+    }
+
+    // Direct edit with field and value
+    try {
+      const issueId = await this.getIssueIdFromIdentifier(ticketIdentifier);
+      if (!issueId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Ticket ${ticketIdentifier} not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      let mutation = '';
+      let successField = '';
+
+      switch (editField) {
+        case 'title':
+          if (!newValue) {
+            await ctx.telegram.editMessageText(
+              ctx.chat!.id,
+              messageId,
+              undefined,
+              '❌ <b>Please provide a new title</b>',
+              { parse_mode: 'HTML' },
+            );
+            return;
+          }
+          const escapedTitle = newValue.replace(/"/g, '\\"');
+          mutation = `
+            mutation {
+              issueUpdate(id: "${issueId}", input: { title: "${escapedTitle}" }) {
+                success
+                issue { title }
+              }
+            }`;
+          successField = 'title';
+          break;
+
+        case 'description':
+          const escapedDesc = (newValue || '').replace(/"/g, '\\"');
+          mutation = `
+            mutation {
+              issueUpdate(id: "${issueId}", input: { description: "${escapedDesc}" }) {
+                success
+                issue { description }
+              }
+            }`;
+          successField = 'description';
+          break;
+
+        case 'assignee':
+          const assigneeId = assigneeName ? await this.aiService.getUserIdByName(assigneeName) : null;
+          if (!assigneeId) {
+            await ctx.telegram.editMessageText(
+              ctx.chat!.id,
+              messageId,
+              undefined,
+              `❌ <b>User "${assigneeName || newValue}" not found</b>`,
+              { parse_mode: 'HTML' },
+            );
+            return;
+          }
+          mutation = `
+            mutation {
+              issueUpdate(id: "${issueId}", input: { assigneeId: "${assigneeId}" }) {
+                success
+                issue { assignee { name } }
+              }
+            }`;
+          successField = 'assignee';
+          break;
+
+        case 'status':
+          const stateId = await this.getStateIdByName(newValue || '');
+          if (!stateId) {
+            await ctx.telegram.editMessageText(
+              ctx.chat!.id,
+              messageId,
+              undefined,
+              `❌ <b>Status "${newValue}" not found</b>\n\nAvailable: Todo, In Progress, In Review, Done`,
+              { parse_mode: 'HTML' },
+            );
+            return;
+          }
+          mutation = `
+            mutation {
+              issueUpdate(id: "${issueId}", input: { stateId: "${stateId}" }) {
+                success
+                issue { state { name } }
+              }
+            }`;
+          successField = 'status';
+          break;
+
+        default:
+          await ctx.telegram.editMessageText(
+            ctx.chat!.id,
+            messageId,
+            undefined,
+            '❌ <b>Unknown field to edit</b>',
+            { parse_mode: 'HTML' },
+          );
+          return;
+      }
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (res.data.data?.issueUpdate?.success) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `✅ <b>Ticket ${ticketIdentifier} ${successField} updated!</b>`,
+          { parse_mode: 'HTML' },
+        );
+      } else {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Failed to update ${successField}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to edit ticket:', err);
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Error editing ticket</b>',
+        { parse_mode: 'HTML' },
+      );
+    }
   }
 
   private async handleCancelAction(
