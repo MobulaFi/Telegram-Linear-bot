@@ -391,6 +391,9 @@ Ready to track your tickets! 📝`;
           case 'cancel':
             await this.handleCancelAction(ctx, processingMsg.message_id, command.ticketIdentifier);
             break;
+          case 'delete':
+            await this.handleDeleteAction(ctx, processingMsg.message_id, command.ticketIdentifier);
+            break;
           case 'assign':
             await this.handleAssignAction(ctx, processingMsg.message_id, command.ticketIdentifier, command.assigneeName);
             break;
@@ -804,6 +807,85 @@ Ready to track your tickets! 📝`;
         messageId,
         undefined,
         '❌ <b>Error editing ticket</b>',
+        { parse_mode: 'HTML' },
+      );
+    }
+  }
+
+  private async handleDeleteAction(
+    ctx: Context,
+    messageId: number,
+    ticketIdentifier: string | null,
+  ): Promise<void> {
+    if (!ticketIdentifier) {
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Could not identify the ticket</b>\n\nPlease specify the ticket (e.g., "delete MOB-1234")',
+        { parse_mode: 'HTML' },
+      );
+      return;
+    }
+
+    try {
+      const issueId = await this.getIssueIdFromIdentifier(ticketIdentifier);
+      if (!issueId) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Ticket ${ticketIdentifier} not found</b>`,
+          { parse_mode: 'HTML' },
+        );
+        return;
+      }
+
+      // Permanently delete the issue
+      const mutation = `
+        mutation {
+          issueDelete(id: "${issueId}") {
+            success
+          }
+        }`;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query: mutation },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (res.data.data?.issueDelete?.success) {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `🗑️ <b>Ticket ${ticketIdentifier} Permanently Deleted</b>\n\n⚠️ This action cannot be undone.`,
+          { parse_mode: 'HTML' },
+        );
+        await this.redis.del(`issue:${issueId}`);
+        await this.redis.srem(`chat:${ctx.chat!.id}:issues`, issueId);
+      } else {
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          messageId,
+          undefined,
+          `❌ <b>Failed to delete ticket ${ticketIdentifier}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      }
+    } catch (err) {
+      console.error('Failed to delete ticket:', err);
+      await ctx.telegram.editMessageText(
+        ctx.chat!.id,
+        messageId,
+        undefined,
+        '❌ <b>Error deleting ticket</b>',
         { parse_mode: 'HTML' },
       );
     }

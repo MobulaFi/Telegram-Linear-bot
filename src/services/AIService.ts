@@ -18,7 +18,7 @@ interface ParsedTicketRequest {
   confidence: number;
 }
 
-type ActionType = 'create' | 'edit' | 'cancel' | 'assign' | 'status';
+type ActionType = 'create' | 'edit' | 'cancel' | 'delete' | 'assign' | 'status';
 type EditField = 'title' | 'description' | 'assignee' | 'status' | 'menu' | null;
 
 interface ParsedCommand {
@@ -228,7 +228,8 @@ Rules:
 Available actions:
 - "create": Create a new ticket
 - "edit": Edit an existing ticket (can edit title, description, assignee, or status directly)
-- "cancel": Cancel/archive an existing ticket
+- "cancel": Cancel/archive an existing ticket (recoverable)
+- "delete": Permanently delete a ticket (IRREVERSIBLE)
 - "assign": Change the assignee of a ticket (shortcut for edit assignee)
 - "status": Change the status of a ticket (shortcut for edit status)
 
@@ -241,7 +242,7 @@ ${ticketContext}
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "action": "create" | "edit" | "cancel" | "assign" | "status",
+  "action": "create" | "edit" | "cancel" | "delete" | "assign" | "status",
   "ticketIdentifier": "MOB-1234 or null",
   "assigneeName": "linearName or null",
   "newStatus": "status name or null",
