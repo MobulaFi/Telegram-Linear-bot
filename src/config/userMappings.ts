@@ -51,6 +51,36 @@ export const USER_MAPPINGS: UserMapping[] = [
     linearEmail: 'sanjay@mobula.io',
     aliases: ['sandy', 'sanjay', 'sand'],
   },
+  {
+    telegramUsername: 'thecryptogange',
+    linearName: 'aurelien',
+    linearEmail: 'aurelien@mobula.io',
+    aliases: ['aurelien', 'aure'],
+  },
+  {
+    telegramUsername: 'KrabsP',
+    linearName: 'yassine',
+    linearEmail: 'yassine@mobula.io',
+    aliases: ['yassine', 'krabs'],
+  },
+  {
+    telegramUsername: 'peterpan0x',
+    linearName: 'peter',
+    linearEmail: 'pantaovay@gmail.com',
+    aliases: ['peter', 'peterpan', 'pan'],
+  },
+  {
+    telegramUsername: 'Doven1995',
+    linearName: 'doven',
+    linearEmail: 'huangdongxc@gmail.com',
+    aliases: ['doven'],
+  },
+  {
+    telegramUsername: 'duwuxie1001',
+    linearName: 'jaxon',
+    linearEmail: 'duwenjie1001@gmail.com',
+    aliases: ['jaxon', 'duwenjie'],
+  },
 ];
 
 // Helper function to find Linear user by any identifier (telegram username, name, alias)
