@@ -561,6 +561,26 @@ Ready to track your tickets! 📝`;
       }
     });
 
+    // Handle Done button callback - delete message and show minimal confirmation
+    this.bot.action(/^done_(.+)$/, async (ctx) => {
+      const issueIdentifier = ctx.match[1];
+      const linearUrl = `https://linear.app/mobulalabs/issue/${issueIdentifier}`;
+      
+      try {
+        await ctx.answerCbQuery('Done!');
+        // Delete the original message
+        await ctx.deleteMessage();
+        // Send a minimal confirmation
+        await ctx.reply(
+          `✅ <b>Done</b> — <a href="${linearUrl}">${issueIdentifier}</a>`,
+          { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+        );
+      } catch (err) {
+        console.error('Failed to handle done action:', err);
+        await ctx.answerCbQuery('Could not process');
+      }
+    });
+
     // Handle Cancel button callback
     this.bot.action(/^cancel_(.+)$/, async (ctx) => {
       const issueId = ctx.match[1];
@@ -1272,6 +1292,9 @@ Ready to track your tickets! 📝`;
             [
               { text: '✏️ Edit', callback_data: `edit_${issue.identifier}` },
               { text: '❌ Cancel', callback_data: `cancel_${issue.id}` },
+            ],
+            [
+              { text: '✅ Done', callback_data: `done_${issue.identifier}` },
             ],
           ],
         },
