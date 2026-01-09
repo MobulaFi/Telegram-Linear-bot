@@ -419,6 +419,12 @@ Ready to track your tickets! 📝`;
 
     // Handle Edit button callback - show menu
     this.bot.action(/^edit_(.+)$/, async (ctx) => {
+      const username = ctx.from?.username;
+      if (!this.isUserAuthorized(username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
+
       const issueIdentifier = ctx.match[1];
       
       await ctx.answerCbQuery();
@@ -447,6 +453,10 @@ Ready to track your tickets! 📝`;
 
     // Handle edit field selection - Title
     this.bot.action(/^editfield_title_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueIdentifier = ctx.match[1];
       await ctx.answerCbQuery();
       await ctx.editMessageText(
@@ -462,6 +472,10 @@ Ready to track your tickets! 📝`;
 
     // Handle edit field selection - Description
     this.bot.action(/^editfield_desc_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueIdentifier = ctx.match[1];
       await ctx.answerCbQuery();
       await ctx.editMessageText(
@@ -476,6 +490,10 @@ Ready to track your tickets! 📝`;
 
     // Handle edit field selection - Assignee
     this.bot.action(/^editfield_assignee_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueIdentifier = ctx.match[1];
       await ctx.answerCbQuery();
       await ctx.editMessageText(
@@ -486,6 +504,10 @@ Ready to track your tickets! 📝`;
 
     // Handle edit field selection - Status
     this.bot.action(/^editfield_status_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueIdentifier = ctx.match[1];
       await ctx.answerCbQuery();
       await ctx.reply(
@@ -510,6 +532,10 @@ Ready to track your tickets! 📝`;
 
     // Handle status change from menu
     this.bot.action(/^setstatus_(.+)_([A-Z]+-\d+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const newStatus = ctx.match[1];
       const issueIdentifier = ctx.match[2];
       
@@ -563,6 +589,10 @@ Ready to track your tickets! 📝`;
 
     // Handle Done button callback - delete message and show minimal confirmation
     this.bot.action(/^done_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueIdentifier = ctx.match[1];
       const linearUrl = `https://linear.app/mobulalabs/issue/${issueIdentifier}`;
       
@@ -583,6 +613,10 @@ Ready to track your tickets! 📝`;
 
     // Handle Cancel button callback
     this.bot.action(/^cancel_(.+)$/, async (ctx) => {
+      if (!this.isUserAuthorized(ctx.from?.username)) {
+        await ctx.answerCbQuery('❌ You are not authorized', { show_alert: true });
+        return;
+      }
       const issueId = ctx.match[1];
       
       try {
@@ -1362,6 +1396,10 @@ Ready to track your tickets! 📝`;
       console.error('Failed to get state ID by name:', err);
       return null;
     }
+  }
+
+  private isUserAuthorized(username: string | undefined): boolean {
+    return !!username && this.allowedUsernames.has(username);
   }
 
   private isBotMentioned(text: string, message: Message.TextMessage): boolean {
