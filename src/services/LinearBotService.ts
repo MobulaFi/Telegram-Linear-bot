@@ -1292,11 +1292,14 @@ Ready to track your tickets! 📝`;
 
     // Build comprehensive success message
     const linearUrl = `https://linear.app/mobulalabs/issue/${issue.identifier}`;
-    const createdBy = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || 'Unknown';
+    const requestedBy = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || 'Unknown';
     const createdAt = new Date().toLocaleString('en-US', { 
       dateStyle: 'medium', 
       timeStyle: 'short' 
     });
+
+    // Get the actual assignee name from the Linear response if available
+    const actualAssignee = issue.assignee?.name || command.assigneeName || 'Unassigned';
 
     let successMsg = `✅ <b>Ticket Created Successfully!</b>\n\n`;
     successMsg += `━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -1306,9 +1309,9 @@ Ready to track your tickets! 📝`;
     
     successMsg += `📝 <b>Description:</b>\n<i>${command.description || 'No description'}</i>\n\n`;
     
-    successMsg += `👤 <b>Assigned to:</b> ${command.assigneeName || 'Unassigned'}\n`;
+    successMsg += `👤 <b>Assigned to:</b> ${actualAssignee}\n`;
     successMsg += `📊 <b>Status:</b> ${issue.state?.name || 'Todo'}\n`;
-    successMsg += `👨‍💻 <b>Created by:</b> ${createdBy}\n`;
+    successMsg += `🙋 <b>Requested by:</b> ${requestedBy}\n`;
     successMsg += `🕐 <b>Created at:</b> ${createdAt}\n\n`;
     
     successMsg += `🔗 <a href="${linearUrl}">View in Linear</a>`;
@@ -1432,7 +1435,7 @@ Ready to track your tickets! 📝`;
     title: string,
     description: string,
     assigneeId: string | null,
-  ): Promise<{ id: string; identifier: string; title: string; state?: { name: string } } | null> {
+  ): Promise<{ id: string; identifier: string; title: string; state?: { name: string }; assignee?: { id: string; name: string } } | null> {
     try {
       const escapedTitle = title.replace(/"/g, '\\"');
       const escapedDescription = description.replace(/"/g, '\\"');

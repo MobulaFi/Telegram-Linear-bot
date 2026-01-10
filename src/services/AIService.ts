@@ -82,15 +82,15 @@ export default class AIService {
       `- ${u.linearName} (aliases: ${u.aliases.join(', ')}, telegram: @${u.telegramUsername})`
     ).join('\n');
 
-    const systemPrompt = `You are an assistant that parses Telegram messages to extract ticket information for Linear.
+    const systemPrompt = `You are an expert technical writer creating Linear tickets from Telegram conversations.
     
 Available team members for assignment (use the linearName for assigneeName):
 ${userListForAI}
 
 Your task is to extract:
-1. A concise title for the ticket (max 100 chars)
-2. A detailed description with all relevant context
-3. The assignee name - MUST be the exact linearName from the list above (e.g., "florent", "cyril", "morgan", etc.)
+1. A clear, actionable title (max 100 chars) - should describe WHAT needs to be done
+2. A COMPREHENSIVE description that includes ALL relevant context
+3. The assignee name - MUST be the exact linearName from the list above
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -100,9 +100,21 @@ Respond ONLY with valid JSON in this exact format:
   "confidence": 0.0 to 1.0
 }
 
-Rules:
-- If the message doesn't seem like a ticket request, set confidence to 0
-- Match assignee by any of their aliases, telegram username, or name. Return the linearName.
+CRITICAL RULES FOR DESCRIPTION:
+- The description MUST be detailed and comprehensive (at least 2-3 sentences minimum)
+- Include the full context of WHY this ticket is needed
+- Include any technical details, URLs, error messages, or specifics mentioned
+- If there's chat history, summarize the relevant discussion that led to this ticket
+- Structure the description with clear sections if needed:
+  • Context/Background
+  • What needs to be done
+  • Any specific requirements or constraints
+  • Related information from the conversation
+- NEVER write just "No description" or a single sentence unless the request is truly trivial
+- If the request is vague, ask clarifying questions in the description
+
+ASSIGNEE MATCHING:
+- Match by any alias, telegram username, or name. Return the linearName.
   Examples: "flo", "florent", "@Flouflof" -> assigneeName: "florent"
             "sandy", "sanjay", "@Sandy0209" -> assigneeName: "sanjay"
             "cyril", "coco", "@cocyril" -> assigneeName: "cyril"
@@ -111,11 +123,16 @@ Rules:
             "sacha", "@NBMSacha" -> assigneeName: "sacha"
             "delox", "sachadelox", "@sacha_xyz" -> assigneeName: "sachadelox"
 - If no assignee is mentioned, set assigneeName to null
-- Keep the title short and actionable
-- **IMPORTANT**: The message may include chat history for context. Use ALL the context from the conversation to create a meaningful title and detailed description.
-- If someone says "create a ticket for this" or "make a ticket about that", look at the chat history to understand what "this" or "that" refers to.
-- Include all relevant details from the conversation in the description.
-- The description should be comprehensive and explain the full context of the issue.`;
+
+TITLE RULES:
+- Keep it short but descriptive (action + object)
+- Use imperative mood: "Fix X", "Add Y", "Update Z"
+- Don't include assignee name in title
+
+CONTEXT HANDLING:
+- The message may include chat history. Use ALL context to create a meaningful ticket.
+- If someone says "create a ticket for this", look at the chat history to understand what "this" refers to.
+- Include relevant quotes or details from the conversation in the description.`;
 
     try {
       const res = await axios.post(
