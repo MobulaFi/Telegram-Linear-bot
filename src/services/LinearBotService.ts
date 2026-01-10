@@ -663,8 +663,25 @@ Ready to track your tickets! 📝`;
       this.botUsername = botInfo.username;
       console.info(`Bot username: @${this.botUsername}`);
       
-      await this.bot.launch();
-      console.info(`Telegram bot @${this.botUsername} polling started.`);
+      // Retry logic for Railway deployments - wait for old instance to stop
+      const maxRetries = 5;
+      const retryDelayMs = 3000;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await this.bot.launch();
+          console.info(`Telegram bot @${this.botUsername} polling started.`);
+          break;
+        } catch (launchErr: unknown) {
+          const isConflict = launchErr instanceof Error && launchErr.message.includes('409');
+          if (isConflict && attempt < maxRetries) {
+            console.warn(`Bot launch attempt ${attempt}/${maxRetries} failed (conflict), retrying in ${retryDelayMs}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+          } else {
+            throw launchErr;
+          }
+        }
+      }
     } catch (err: unknown) {
       console.error('Failed to launch Telegram bot', err);
     }
