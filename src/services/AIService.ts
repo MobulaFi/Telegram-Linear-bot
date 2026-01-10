@@ -240,7 +240,7 @@ CONTEXT HANDLING:
       ? `Recent tickets mentioned in this chat:\n${recentTickets.join('\n')}`
       : 'No recent tickets in context.';
 
-    const systemPrompt = `You are an assistant that parses Telegram messages to understand what action the user wants to perform on Linear tickets.
+    const systemPrompt = `You are an expert technical writer that parses Telegram messages to understand what action the user wants to perform on Linear tickets.
 
 Available actions:
 - "create": Create a new ticket
@@ -270,18 +270,39 @@ Respond ONLY with valid JSON in this exact format:
   "confidence": 0.0 to 1.0
 }
 
-Rules:
-- For "create": provide title, description, and optionally assigneeName
+=== CRITICAL RULES FOR "create" ACTION ===
+
+TITLE:
+- Keep it short but descriptive (max 100 chars)
+- Use imperative mood: "Move X to Y", "Fix X", "Add Y", "Update Z"
+- Don't include assignee name in title
+
+DESCRIPTION - THIS IS CRITICAL:
+- The description MUST be detailed and comprehensive (minimum 2-3 sentences)
+- NEVER leave description empty, null, or just "No description"
+- Structure it like this:
+  
+  **Context:** Why is this needed? What's the background?
+  **Task:** What exactly needs to be done?
+  **Details:** Any specific technical details, URLs, constraints, or requirements mentioned.
+
+- Example: If user says "move the aggregator latency to railway", the description should be:
+  "**Context:** The aggregator latency monitoring needs to be migrated to a new infrastructure.
+   **Task:** Move the aggregator latency service/monitoring from current infrastructure to Railway platform.
+   **Details:** This involves setting up the service on Railway and ensuring latency tracking continues to work properly."
+
+- If the message includes chat history, summarize ALL relevant context from the conversation
+- Include any technical terms, service names, or specifics mentioned
+- If something is unclear, mention what might need clarification
+
+=== OTHER RULES ===
+
 - For "edit": 
   - If user specifies what to edit (e.g., "edit the title to X"), set editField and newValue
-  - If user just says "edit this ticket" without specifying, set editField to "menu" (will show interactive menu)
-  - Examples:
-    - "edit titre MOB-1234 : Fix bug" -> editField: "title", newValue: "Fix bug"
-    - "change la description de ce ticket : nouvelle desc" -> editField: "description", newValue: "nouvelle desc"
-    - "edit this ticket" -> editField: "menu"
-- For "cancel": identify the ticket from context or message
-- For "assign": identify the ticket AND the new assignee (this is a shortcut, internally uses edit)
-- For "status": identify the ticket AND the new status (this is a shortcut, internally uses edit)
+  - If user just says "edit this ticket" without specifying, set editField to "menu"
+- For "cancel", "delete": identify the ticket from context or message
+- For "assign": identify the ticket AND the new assignee
+- For "status": identify the ticket AND the new status
 - If the user says "this ticket", "ce ticket", "le ticket", look at recent tickets context
 - If you can't determine the ticket, set ticketIdentifier to the most recent one from context
 - Match assignee by any alias, telegram username, or name. Return the linearName.
