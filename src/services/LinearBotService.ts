@@ -1277,8 +1277,14 @@ Ready to track your tickets! 📝`;
     const chatId = ctx.chat!.id;
     let telegramLink = '';
     if (chatType === 'supergroup' || chatType === 'group') {
-      // For supergroups, chat ID is negative and starts with -100
-      const formattedChatId = String(chatId).replace('-100', '');
+      // For supergroups/groups, chat ID is negative. Remove the minus sign and leading "100" if present
+      // Chat IDs can be -100XXXXXXXXXX for supergroups or -XXXXXXXXXX for regular groups
+      const chatIdStr = String(chatId);
+      const formattedChatId = chatIdStr.startsWith('-100') 
+        ? chatIdStr.slice(4) 
+        : chatIdStr.startsWith('-') 
+          ? chatIdStr.slice(1) 
+          : chatIdStr;
       telegramLink = `https://t.me/c/${formattedChatId}/${message.message_id}`;
     }
     
