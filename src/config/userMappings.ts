@@ -13,7 +13,7 @@ export const USER_MAPPINGS: UserMapping[] = [
     telegramUsername: 'Flouflof',
     linearName: 'florent',
     linearEmail: 'florent@mobula.io',
-    aliases: ['florent', 'flo', 'flouflof'],
+    aliases: ['florent', 'flo', 'floflo', 'flouflof', 'floflouf', 'flou', 'flouf'],
   },
   {
     telegramUsername: 'cocyril',

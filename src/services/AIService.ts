@@ -182,22 +182,36 @@ CONTEXT HANDLING:
   }
 
   private findUserByName(name: string): LinearUser | null {
-    const normalizedName = name.toLowerCase().trim();
+    const normalizedName = name.toLowerCase().trim().replace('@', '');
+    console.log(`[AIService] findUserByName: looking for "${normalizedName}"`);
     
     // First, try to find via our custom mapping
     const mapping = findLinearUserByIdentifier(normalizedName);
+    console.log(`[AIService] Mapping found:`, mapping);
+    
     if (mapping) {
       // Find the Linear user by email from our mapping
       const linearUser = this.linearUsers.find(
         (u) => u.email.toLowerCase() === mapping.linearEmail.toLowerCase()
       );
       if (linearUser) {
+        console.log(`[AIService] Found via mapping email match:`, linearUser.email);
         return linearUser;
+      }
+      
+      // Fallback: try to find by name if email doesn't match
+      const byName = this.linearUsers.find(
+        (u) => u.name.toLowerCase().includes(mapping.linearName.toLowerCase()) ||
+               mapping.linearName.toLowerCase().includes(u.name.toLowerCase())
+      );
+      if (byName) {
+        console.log(`[AIService] Found via mapping name match:`, byName.name);
+        return byName;
       }
     }
     
     // Fallback to direct Linear user search
-    return this.linearUsers.find((user) => {
+    const directMatch = this.linearUsers.find((user) => {
       const userName = user.name.toLowerCase();
       const displayName = user.displayName.toLowerCase();
       const emailPrefix = user.email.split('@')[0].toLowerCase();
@@ -211,11 +225,19 @@ CONTEXT HANDLING:
         normalizedName.includes(emailPrefix)
       );
     }) ?? null;
+    
+    console.log(`[AIService] Direct match result:`, directMatch?.name ?? 'null');
+    return directMatch;
   }
 
   async getUserIdByName(name: string): Promise<string | null> {
     await this.fetchLinearUsers();
+    console.log(`[AIService] getUserIdByName called with: "${name}"`);
+    console.log(`[AIService] Available Linear users:`, this.linearUsers.map(u => ({ name: u.name, email: u.email, id: u.id })));
+    
     const user = this.findUserByName(name);
+    console.log(`[AIService] Found user:`, user ? { name: user.name, email: user.email, id: user.id } : null);
+    
     return user?.id ?? null;
   }
 
@@ -295,6 +317,21 @@ DESCRIPTION - THIS IS CRITICAL:
 - Include any technical terms, service names, or specifics mentioned
 - If something is unclear, mention what might need clarification
 
+=== ASSIGNEE MATCHING (CRITICAL) ===
+
+- ALWAYS return the exact "linearName" from the list above for assigneeName
+- Use FUZZY MATCHING: if user writes something similar to an alias, match it:
+  - "floflo", "flo", "flouf", "flou" → assigneeName: "florent"
+  - "cycy", "cyr", "cyri" → assigneeName: "cyril"  
+  - "sandy", "sand", "sanj" → assigneeName: "sanjay"
+  - "morg", "morgs" → assigneeName: "morgan"
+  - "sach", "del", "delox" → assigneeName: "sachadelox"
+  - "aure", "aurel" → assigneeName: "aurelien"
+  - "yass", "krab" → assigneeName: "yassine"
+  - "pet", "peter", "pan" → assigneeName: "peter"
+- If a Telegram username is mentioned (@xxx), find the matching linearName
+- NEVER return the telegram username or email as assigneeName, ONLY the linearName
+
 === OTHER RULES ===
 
 - For "edit": 
@@ -305,7 +342,6 @@ DESCRIPTION - THIS IS CRITICAL:
 - For "status": identify the ticket AND the new status
 - If the user says "this ticket", "ce ticket", "le ticket", look at recent tickets context
 - If you can't determine the ticket, set ticketIdentifier to the most recent one from context
-- Match assignee by any alias, telegram username, or name. Return the linearName.
 - If the message is unclear, set confidence to 0`;
 
     try {
