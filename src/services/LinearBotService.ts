@@ -1478,14 +1478,23 @@ Ready to track your tickets! 📝`;
     return text.replace(regex, '').trim();
   }
 
+  private escapeGraphQLString(str: string): string {
+    return str
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  }
+
   private async createLinearIssue(
     title: string,
     description: string,
     assigneeId: string | null,
   ): Promise<{ id: string; identifier: string; title: string; state?: { name: string }; assignee?: { id: string; name: string } } | null> {
     try {
-      const escapedTitle = title.replace(/"/g, '\\"');
-      const escapedDescription = description.replace(/"/g, '\\"');
+      const escapedTitle = this.escapeGraphQLString(title);
+      const escapedDescription = this.escapeGraphQLString(description);
       
       let mutation = `
         mutation {
