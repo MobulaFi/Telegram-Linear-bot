@@ -1266,9 +1266,34 @@ Ready to track your tickets! 📝`;
       assigneeId = await this.aiService.getUserIdByName(command.assigneeName);
     }
 
+    // Build description with Telegram context
+    const chatType = ctx.chat!.type;
+    const chatName = chatType === 'private' 
+      ? `Private chat with ${ctx.from?.username || ctx.from?.first_name || 'Unknown'}`
+      : (ctx.chat as { title?: string }).title || 'Unknown Group';
+    
+    // Build Telegram message link
+    const message = ctx.message as { message_id?: number };
+    const chatId = ctx.chat!.id;
+    let telegramLink = '';
+    if (chatType === 'supergroup' || chatType === 'group') {
+      // For supergroups, chat ID is negative and starts with -100
+      const formattedChatId = String(chatId).replace('-100', '');
+      telegramLink = `https://t.me/c/${formattedChatId}/${message.message_id}`;
+    }
+    
+    // Build full description with context
+    let fullDescription = command.description || '';
+    fullDescription += '\n\n---\n';
+    fullDescription += `**Context:** ${chatName}`;
+    if (telegramLink) {
+      fullDescription += ` ([View in Telegram](${telegramLink}))`;
+    }
+    fullDescription += `\n**Requested by:** @${ctx.from?.username || ctx.from?.first_name || 'Unknown'}`;
+
     const issue = await this.createLinearIssue(
       command.title,
-      command.description || '',
+      fullDescription,
       assigneeId,
     );
 
@@ -1283,10 +1308,9 @@ Ready to track your tickets! 📝`;
       return;
     }
 
-    const chatType = ctx.chat!.type;
     const team = chatType === 'private' 
       ? ctx.from?.username || 'PrivateChat' 
-      : (ctx.chat as { title?: string }).title || 'UnknownGroup';
+      : chatName;
 
     // Store in Redis
     const issueData: TelegramLinearIssue = {
