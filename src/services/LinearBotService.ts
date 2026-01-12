@@ -1272,7 +1272,7 @@ Ready to track your tickets! 📝`;
       ? `Private chat with ${ctx.from?.username || ctx.from?.first_name || 'Unknown'}`
       : (ctx.chat as { title?: string }).title || 'Unknown Group';
     
-    // Build Telegram message link
+    // Build Telegram message link using tg:// protocol for direct app opening
     const message = ctx.message as { message_id?: number };
     const chatId = ctx.chat!.id;
     let telegramLink = '';
@@ -1285,7 +1285,8 @@ Ready to track your tickets! 📝`;
         : chatIdStr.startsWith('-') 
           ? chatIdStr.slice(1) 
           : chatIdStr;
-      telegramLink = `https://t.me/c/${formattedChatId}/${message.message_id}`;
+      // Use tg:// protocol to open directly in Telegram app (works for private groups)
+      telegramLink = `tg://privatepost?channel=${formattedChatId}&post=${message.message_id}`;
     }
     
     // Build full description with context
