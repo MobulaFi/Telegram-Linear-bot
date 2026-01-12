@@ -1272,29 +1272,15 @@ Ready to track your tickets! 📝`;
       ? `Private chat with ${ctx.from?.username || ctx.from?.first_name || 'Unknown'}`
       : (ctx.chat as { title?: string }).title || 'Unknown Group';
     
-    // Build Telegram message link using tg:// protocol for direct app opening
+    // Build message reference (no clickable link for private groups - Telegram limitation)
     const message = ctx.message as { message_id?: number };
-    const chatId = ctx.chat!.id;
-    let telegramLink = '';
-    if (chatType === 'supergroup' || chatType === 'group') {
-      // For supergroups/groups, chat ID is negative. Remove the minus sign and leading "100" if present
-      // Chat IDs can be -100XXXXXXXXXX for supergroups or -XXXXXXXXXX for regular groups
-      const chatIdStr = String(chatId);
-      const formattedChatId = chatIdStr.startsWith('-100') 
-        ? chatIdStr.slice(4) 
-        : chatIdStr.startsWith('-') 
-          ? chatIdStr.slice(1) 
-          : chatIdStr;
-      // Use tg:// protocol to open directly in Telegram app (works for private groups)
-      telegramLink = `tg://privatepost?channel=${formattedChatId}&post=${message.message_id}`;
-    }
     
     // Build full description with context
     let fullDescription = command.description || '';
     fullDescription += '\n\n---\n';
     fullDescription += `**Context:** ${chatName}`;
-    if (telegramLink) {
-      fullDescription += ` ([View in Telegram](${telegramLink}))`;
+    if (message.message_id) {
+      fullDescription += ` (Message #${message.message_id})`;
     }
     fullDescription += `\n**Requested by:** @${ctx.from?.username || ctx.from?.first_name || 'Unknown'}`;
 
