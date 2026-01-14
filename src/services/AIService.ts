@@ -272,27 +272,24 @@ Available actions:
 - "assign": Change the assignee of an EXISTING ticket (shortcut for edit assignee) - ONLY use if a specific ticket ID like MOB-1234 is mentioned
 - "status": Change the status of an EXISTING ticket (shortcut for edit status) - ONLY use if a specific ticket ID like MOB-1234 is mentioned
 
-=== CRITICAL: DISTINGUISHING "create" vs "assign" ===
+=== CRITICAL: DISTINGUISHING "create" vs "assign/status/edit/cancel/delete" ===
 
-RULE: If NO ticket identifier (like MOB-1234) is mentioned, it's ALWAYS a "create" action!
+THE GOLDEN RULE: Does the message reference an EXISTING ticket identifier (like MOB-1234, MOB-567, etc.)?
+- NO existing ticket ID mentioned → action is "create" (we're making something NEW)
+- YES existing ticket ID mentioned → action is "assign", "status", "edit", "cancel", or "delete" (we're modifying something EXISTING)
 
-Examples of CREATE (no existing ticket ID):
-- "assign me a ticket to do X" → action: "create" (NEW ticket assigned to speaker)
-- "can you assign me a ticket for X" → action: "create" (NEW ticket)
-- "assign Sacha a ticket to X" → action: "create" (NEW ticket assigned to Sacha)
-- "assign a ticket to @Flouflof on X" → action: "create" (NEW ticket assigned to Flouflof)
-- "can you assign a ticket to Sandy for Y" → action: "create" (NEW ticket)
-- "create a ticket for Cyril to do Z" → action: "create" (NEW ticket)
+IMPORTANT: The words "assign", "give", "make", etc. do NOT determine the action type.
+What matters is WHETHER an existing ticket is referenced or not.
 
-Examples of ASSIGN (EXISTING ticket ID mentioned):
-- "assign MOB-1234 to Cyril" → action: "assign" (changing assignee of EXISTING ticket)
-- "assign this ticket to Morgan" → action: "assign" (if there's a recent ticket in context)
-- "reassign MOB-567 to Sandy" → action: "assign"
+If the user talks about:
+- "a ticket", "un ticket", "a task" (indefinite article) → They want to CREATE something new
+- "MOB-1234", "this ticket", "the ticket MOB-XXX" (specific reference) → They want to MODIFY something existing
 
-KEY PATTERNS:
-- "assign [PERSON] a ticket" = CREATE new ticket
-- "assign a ticket to [PERSON]" = CREATE new ticket  
-- "assign [TICKET-ID] to [PERSON]" = ASSIGN existing ticket
+Examples showing the logic:
+- "assign/give/make [PERSON] a ticket about X" → No ticket ID = CREATE
+- "assign/give a ticket to [PERSON] for X" → No ticket ID = CREATE  
+- "assign/reassign MOB-1234 to [PERSON]" → Has ticket ID = ASSIGN existing
+- "change status of MOB-567 to Done" → Has ticket ID = STATUS existing
 
 Available team members for assignment:
 ${userListForAI}
@@ -366,24 +363,18 @@ DESCRIPTION - THIS IS CRITICAL:
 - If you can't determine the ticket, set ticketIdentifier to the most recent one from context
 - If the message is unclear, set confidence to 0
 
-=== EXAMPLES ===
-User: "assign me Sacha a ticket to clean up the docs"
-→ action: "create", title: "Clean up documentation", assigneeName: "sachadelox", ticketIdentifier: null
+=== EXAMPLES (showing the Golden Rule in action) ===
 
-User: "can you assign me a ticket to fix the login bug"  
-→ action: "create", title: "Fix login bug", assigneeName: (the person speaking), ticketIdentifier: null
+NO ticket ID = CREATE:
+- "assign me a ticket to X" → create (no MOB-XXX)
+- "give Sandy a task for Y" → create (no MOB-XXX)
+- "can you assign a ticket to @Flouflof on Z" → create (no MOB-XXX)
+- "make a ticket for Cyril about W" → create (no MOB-XXX)
 
-User: "can you assign a ticket to @Flouflof on adding plume chain"
-→ action: "create", title: "Add Plume chain support", assigneeName: "florent", ticketIdentifier: null
-
-User: "assign a ticket to Sandy for updating the docs"
-→ action: "create", title: "Update documentation", assigneeName: "sanjay", ticketIdentifier: null
-
-User: "assign MOB-1234 to Cyril"
-→ action: "assign", ticketIdentifier: "MOB-1234", assigneeName: "cyril"
-
-User: "create a ticket for Sandy to update the API"
-→ action: "create", title: "Update the API", assigneeName: "sanjay", ticketIdentifier: null`;
+HAS ticket ID = MODIFY EXISTING:
+- "assign MOB-1234 to Cyril" → assign (has MOB-1234)
+- "change MOB-567 status to Done" → status (has MOB-567)
+- "cancel MOB-890" → cancel (has MOB-890)`;
 
     try {
       const res = await axios.post(
