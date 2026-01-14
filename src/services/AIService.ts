@@ -273,14 +273,26 @@ Available actions:
 - "status": Change the status of an EXISTING ticket (shortcut for edit status) - ONLY use if a specific ticket ID like MOB-1234 is mentioned
 
 === CRITICAL: DISTINGUISHING "create" vs "assign" ===
-- "assign me a ticket to do X" → action: "create" (creating a NEW ticket assigned to the speaker)
-- "can you assign me a ticket for X" → action: "create" (creating a NEW ticket)
-- "assign Sacha a ticket to X" → action: "create" (creating a NEW ticket assigned to Sacha)
+
+RULE: If NO ticket identifier (like MOB-1234) is mentioned, it's ALWAYS a "create" action!
+
+Examples of CREATE (no existing ticket ID):
+- "assign me a ticket to do X" → action: "create" (NEW ticket assigned to speaker)
+- "can you assign me a ticket for X" → action: "create" (NEW ticket)
+- "assign Sacha a ticket to X" → action: "create" (NEW ticket assigned to Sacha)
+- "assign a ticket to @Flouflof on X" → action: "create" (NEW ticket assigned to Flouflof)
+- "can you assign a ticket to Sandy for Y" → action: "create" (NEW ticket)
+- "create a ticket for Cyril to do Z" → action: "create" (NEW ticket)
+
+Examples of ASSIGN (EXISTING ticket ID mentioned):
 - "assign MOB-1234 to Cyril" → action: "assign" (changing assignee of EXISTING ticket)
 - "assign this ticket to Morgan" → action: "assign" (if there's a recent ticket in context)
+- "reassign MOB-567 to Sandy" → action: "assign"
 
-The word "assign" followed by a PERSON + "a ticket" = CREATE a new ticket
-The word "assign" followed by a TICKET ID + "to" + PERSON = ASSIGN existing ticket
+KEY PATTERNS:
+- "assign [PERSON] a ticket" = CREATE new ticket
+- "assign a ticket to [PERSON]" = CREATE new ticket  
+- "assign [TICKET-ID] to [PERSON]" = ASSIGN existing ticket
 
 Available team members for assignment:
 ${userListForAI}
@@ -360,6 +372,12 @@ User: "assign me Sacha a ticket to clean up the docs"
 
 User: "can you assign me a ticket to fix the login bug"  
 → action: "create", title: "Fix login bug", assigneeName: (the person speaking), ticketIdentifier: null
+
+User: "can you assign a ticket to @Flouflof on adding plume chain"
+→ action: "create", title: "Add Plume chain support", assigneeName: "florent", ticketIdentifier: null
+
+User: "assign a ticket to Sandy for updating the docs"
+→ action: "create", title: "Update documentation", assigneeName: "sanjay", ticketIdentifier: null
 
 User: "assign MOB-1234 to Cyril"
 → action: "assign", ticketIdentifier: "MOB-1234", assigneeName: "cyril"
