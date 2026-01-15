@@ -157,7 +157,14 @@ CONTEXT HANDLING:
       const content = res.data.choices?.[0]?.message?.content;
       if (!content) return null;
 
-      const parsed = JSON.parse(content) as ParsedTicketRequest;
+      // Clean markdown code blocks if present (GPT sometimes wraps JSON in ```json ... ```)
+      const cleanedContent = content
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      const parsed = JSON.parse(cleanedContent) as ParsedTicketRequest;
       
       // Validate and match assignee
       if (parsed.assigneeName) {
@@ -399,7 +406,14 @@ HAS ticket ID = MODIFY EXISTING:
       const content = res.data.choices?.[0]?.message?.content;
       if (!content) return null;
 
-      const parsed = JSON.parse(content) as ParsedCommand;
+      // Clean markdown code blocks if present (GPT sometimes wraps JSON in ```json ... ```)
+      const cleanedContent = content
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      const parsed = JSON.parse(cleanedContent) as ParsedCommand;
       
       // Validate and match assignee if present
       if (parsed.assigneeName) {
