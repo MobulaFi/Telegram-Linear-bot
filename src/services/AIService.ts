@@ -120,9 +120,14 @@ ASSIGNEE MATCHING:
             "cyril", "coco", "@cocyril" -> assigneeName: "cyril"
             "morgan", "@Mrg77i" -> assigneeName: "morgan"
             "teo", "@NBMXyeu" -> assigneeName: "teo"
-            "sacha", "@NBMSacha" -> assigneeName: "sacha"
-            "delox", "sachadelox", "@sacha_xyz" -> assigneeName: "sachadelox"
+            "delox", "sachadelox", "@sacha_xyz", "goat" -> assigneeName: "sachadelox"
 - If no assignee is mentioned, set assigneeName to null
+
+⚠️ CRITICAL - TWO DIFFERENT PEOPLE NAMED SACHA:
+- "sacha" or "@NBMSacha" or "nbmsacha" → assigneeName: "sacha" (this is Sacha from NBM)
+- "delox" or "sachadelox" or "@sacha_xyz" or "goat" → assigneeName: "sachadelox" (this is Delox)
+When user just says "sacha" without more context, default to "sacha" (NBMSacha).
+Only use "sachadelox" if they specifically say "delox", "sachadelox", "goat", or "@sacha_xyz".
 
 TITLE RULES:
 - Keep it short but descriptive (action + object)
@@ -351,12 +356,17 @@ DESCRIPTION - THIS IS CRITICAL:
   - "cycy", "cyr", "cyri" → assigneeName: "cyril"  
   - "sandy", "sand", "sanj" → assigneeName: "sanjay"
   - "morg", "morgs" → assigneeName: "morgan"
-  - "sach", "del", "delox" → assigneeName: "sachadelox"
   - "aure", "aurel" → assigneeName: "aurelien"
   - "yass", "krab" → assigneeName: "yassine"
   - "pet", "peter", "pan" → assigneeName: "peter"
 - If a Telegram username is mentioned (@xxx), find the matching linearName
 - NEVER return the telegram username or email as assigneeName, ONLY the linearName
+
+⚠️ CRITICAL - TWO DIFFERENT PEOPLE NAMED SACHA:
+- "sacha", "@NBMSacha", "nbmsacha" → assigneeName: "sacha" (this is Sacha from NBM)
+- "delox", "sachadelox", "@sacha_xyz", "goat" → assigneeName: "sachadelox" (this is Delox)
+When user just says "sacha" without more context, default to "sacha" (NBMSacha).
+Only use "sachadelox" if they specifically say "delox", "sachadelox", "goat", or "@sacha_xyz".
 
 === OTHER RULES ===
 
