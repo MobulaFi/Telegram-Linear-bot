@@ -196,29 +196,65 @@ CONTEXT HANDLING:
   private findUserByName(name: string): LinearUser | null {
     const normalizedName = name.toLowerCase().trim().replace('@', '');
     console.log(`[AIService] findUserByName: looking for "${normalizedName}"`);
+    console.log(`[AIService] Available Linear users:`, this.linearUsers.map(u => ({ name: u.name, email: u.email })));
     
     // First, try to find via our custom mapping
     const mapping = findLinearUserByIdentifier(normalizedName);
     console.log(`[AIService] Mapping found:`, mapping);
     
     if (mapping) {
-      // Find the Linear user by email from our mapping
-      const linearUser = this.linearUsers.find(
+      // Try multiple matching strategies
+      
+      // 1. Exact email match
+      let linearUser = this.linearUsers.find(
         (u) => u.email.toLowerCase() === mapping.linearEmail.toLowerCase()
       );
       if (linearUser) {
-        console.log(`[AIService] Found via mapping email match:`, linearUser.email);
+        console.log(`[AIService] Found via exact email match:`, linearUser.email);
         return linearUser;
       }
       
-      // Fallback: try to find by name if email doesn't match
-      const byName = this.linearUsers.find(
+      // 2. Email prefix match (before @)
+      const mappingEmailPrefix = mapping.linearEmail.split('@')[0].toLowerCase();
+      linearUser = this.linearUsers.find(
+        (u) => u.email.split('@')[0].toLowerCase() === mappingEmailPrefix
+      );
+      if (linearUser) {
+        console.log(`[AIService] Found via email prefix match:`, linearUser.email);
+        return linearUser;
+      }
+      
+      // 3. Name contains linearName or vice versa
+      linearUser = this.linearUsers.find(
         (u) => u.name.toLowerCase().includes(mapping.linearName.toLowerCase()) ||
                mapping.linearName.toLowerCase().includes(u.name.toLowerCase())
       );
-      if (byName) {
-        console.log(`[AIService] Found via mapping name match:`, byName.name);
-        return byName;
+      if (linearUser) {
+        console.log(`[AIService] Found via name match:`, linearUser.name);
+        return linearUser;
+      }
+      
+      // 4. DisplayName contains linearName or vice versa
+      linearUser = this.linearUsers.find(
+        (u) => u.displayName.toLowerCase().includes(mapping.linearName.toLowerCase()) ||
+               mapping.linearName.toLowerCase().includes(u.displayName.toLowerCase())
+      );
+      if (linearUser) {
+        console.log(`[AIService] Found via displayName match:`, linearUser.displayName);
+        return linearUser;
+      }
+      
+      // 5. Try matching any alias against user name/displayName/email
+      for (const alias of mapping.aliases) {
+        linearUser = this.linearUsers.find(
+          (u) => u.name.toLowerCase().includes(alias.toLowerCase()) ||
+                 u.displayName.toLowerCase().includes(alias.toLowerCase()) ||
+                 u.email.split('@')[0].toLowerCase().includes(alias.toLowerCase())
+        );
+        if (linearUser) {
+          console.log(`[AIService] Found via alias "${alias}" match:`, linearUser.name);
+          return linearUser;
+        }
       }
     }
     
