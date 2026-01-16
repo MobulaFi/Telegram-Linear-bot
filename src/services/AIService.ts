@@ -124,9 +124,9 @@ ASSIGNEE MATCHING:
 - If no assignee is mentioned, set assigneeName to null
 
 ⚠️ CRITICAL - TWO DIFFERENT PEOPLE NAMED SACHA:
-- "sacha" or "@NBMSacha" or "nbmsacha" → assigneeName: "sacha" (this is Sacha from NBM)
-- "delox" or "sachadelox" or "@sacha_xyz" or "goat" → assigneeName: "sachadelox" (this is Delox)
-When user just says "sacha" without more context, default to "sacha" (NBMSacha).
+- "sacha", "marcus", "sacha marcus", "@NBMSacha", "nbmsacha" → assigneeName: "sacha" (this is Sacha Marcus from NBM)
+- "delox", "sachadelox", "@sacha_xyz", "goat" → assigneeName: "sachadelox" (this is Delox)
+When user just says "sacha" without more context, ALWAYS default to "sacha" (Sacha Marcus / NBMSacha).
 Only use "sachadelox" if they specifically say "delox", "sachadelox", "goat", or "@sacha_xyz".
 
 TITLE RULES:
@@ -399,9 +399,9 @@ DESCRIPTION - THIS IS CRITICAL:
 - NEVER return the telegram username or email as assigneeName, ONLY the linearName
 
 ⚠️ CRITICAL - TWO DIFFERENT PEOPLE NAMED SACHA:
-- "sacha", "@NBMSacha", "nbmsacha" → assigneeName: "sacha" (this is Sacha from NBM)
+- "sacha", "marcus", "sacha marcus", "@NBMSacha", "nbmsacha" → assigneeName: "sacha" (this is Sacha Marcus from NBM)
 - "delox", "sachadelox", "@sacha_xyz", "goat" → assigneeName: "sachadelox" (this is Delox)
-When user just says "sacha" without more context, default to "sacha" (NBMSacha).
+When user just says "sacha" without more context, ALWAYS default to "sacha" (Sacha Marcus / NBMSacha).
 Only use "sachadelox" if they specifically say "delox", "sachadelox", "goat", or "@sacha_xyz".
 
 === OTHER RULES ===
