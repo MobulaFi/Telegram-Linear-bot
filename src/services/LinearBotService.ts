@@ -188,12 +188,22 @@ Ready to track your tickets! 📝`;
       const creatingMsg = await ctx.reply('⏳ Creating Ticket...', { parse_mode: 'HTML' });
 
       try {
-        const mutation = `
+        // Get active cycle
+        const cycleId = await this.getActiveCycleId();
+        
+        let mutation = `
         mutation {
           issueCreate(input: {
             title: "${title}",
             description: "${description}",
-            teamId: "${this.config.get('LINEAR_TEAM_ID')}"
+            teamId: "${this.config.get('LINEAR_TEAM_ID')}"`;
+        
+        if (cycleId) {
+          mutation += `,
+            cycleId: "${cycleId}"`;
+        }
+        
+        mutation += `
           }) {
             success
             issue {
@@ -201,6 +211,7 @@ Ready to track your tickets! 📝`;
               identifier
               title
               state { name }
+              cycle { id name }
             }
           }
         }`;
@@ -1486,14 +1497,58 @@ Ready to track your tickets! 📝`;
       .replace(/\t/g, '\\t');
   }
 
+  private async getActiveCycleId(): Promise<string | null> {
+    try {
+      const teamId = this.config.get('LINEAR_TEAM_ID');
+      const query = `
+        query {
+          team(id: "${teamId}") {
+            activeCycle {
+              id
+              name
+              startsAt
+              endsAt
+            }
+          }
+        }
+      `;
+
+      const res = await axios.post(
+        this.config.get('LINEAR_API_URL'),
+        { query },
+        {
+          headers: {
+            Authorization: this.config.get('LINEAR_API_KEY'),
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const activeCycle = res.data.data?.team?.activeCycle;
+      if (activeCycle) {
+        console.log(`[LinearBot] Active cycle found: ${activeCycle.name} (${activeCycle.id})`);
+        return activeCycle.id;
+      }
+      
+      console.log('[LinearBot] No active cycle found for team');
+      return null;
+    } catch (err) {
+      console.error('Failed to fetch active cycle:', err);
+      return null;
+    }
+  }
+
   private async createLinearIssue(
     title: string,
     description: string,
     assigneeId: string | null,
-  ): Promise<{ id: string; identifier: string; title: string; state?: { name: string }; assignee?: { id: string; name: string } } | null> {
+  ): Promise<{ id: string; identifier: string; title: string; state?: { name: string }; assignee?: { id: string; name: string }; cycle?: { id: string; name: string } } | null> {
     try {
       const escapedTitle = this.escapeGraphQLString(title);
       const escapedDescription = this.escapeGraphQLString(description);
+      
+      // Get active cycle
+      const cycleId = await this.getActiveCycleId();
       
       let mutation = `
         mutation {
@@ -1507,6 +1562,11 @@ Ready to track your tickets! 📝`;
             assigneeId: "${assigneeId}"`;
       }
       
+      if (cycleId) {
+        mutation += `,
+            cycleId: "${cycleId}"`;
+      }
+      
       mutation += `
           }) {
             success
@@ -1516,6 +1576,7 @@ Ready to track your tickets! 📝`;
               title
               state { name }
               assignee { id name }
+              cycle { id name }
             }
           }
         }`;
