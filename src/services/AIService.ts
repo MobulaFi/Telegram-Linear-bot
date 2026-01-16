@@ -384,6 +384,22 @@ DESCRIPTION - THIS IS CRITICAL:
 - Include any technical terms, service names, or specifics mentioned
 - If something is unclear, mention what might need clarification
 
+=== ASSIGNEE DETECTION (VERY IMPORTANT) ===
+
+WHEN TO SET assigneeName:
+- "create a ticket TO [person]" → assigneeName = that person
+- "create a ticket FOR [person]" → assigneeName = that person  
+- "assign [person] a ticket" → assigneeName = that person
+- "give [person] a ticket" → assigneeName = that person
+- "[task] to [person]" → assigneeName = that person
+- "[task] for [person]" → assigneeName = that person
+
+Examples:
+- "integrate a ticket to sacha" → assigneeName: "sacha"
+- "create a ticket for florent" → assigneeName: "florent"
+- "assign cyril a task about X" → assigneeName: "cyril"
+- "give sandy the bug fix" → assigneeName: "sanjay"
+
 === ASSIGNEE MATCHING (CRITICAL) ===
 
 - ALWAYS return the exact "linearName" from the list above for assigneeName
@@ -397,6 +413,7 @@ DESCRIPTION - THIS IS CRITICAL:
   - "pet", "peter", "pan" → assigneeName: "peter"
 - If a Telegram username is mentioned (@xxx), find the matching linearName
 - NEVER return the telegram username or email as assigneeName, ONLY the linearName
+- NEVER return the string "null" - use actual JSON null if no assignee
 
 ⚠️ CRITICAL - TWO DIFFERENT PEOPLE NAMED SACHA:
 - "sacha", "marcus", "sacha marcus", "@NBMSacha", "nbmsacha" → assigneeName: "sacha" (this is Sacha Marcus from NBM)
@@ -460,6 +477,11 @@ HAS ticket ID = MODIFY EXISTING:
         .trim();
 
       const parsed = JSON.parse(cleanedContent) as ParsedCommand;
+      
+      // Fix AI returning string "null" instead of actual null
+      if (parsed.assigneeName === 'null' || parsed.assigneeName === 'undefined' || parsed.assigneeName === '') {
+        parsed.assigneeName = null;
+      }
       
       console.log(`[AIService] parseCommand - AI returned assigneeName: "${parsed.assigneeName}"`);
       
