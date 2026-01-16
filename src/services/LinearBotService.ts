@@ -1273,8 +1273,10 @@ Ready to track your tickets! 📝`;
     }
 
     let assigneeId: string | null = null;
+    console.log(`[LinearBot] handleCreateAction - command.assigneeName: "${command.assigneeName}"`);
     if (command.assigneeName) {
       assigneeId = await this.aiService.getUserIdByName(command.assigneeName);
+      console.log(`[LinearBot] handleCreateAction - resolved assigneeId: "${assigneeId}"`);
     }
 
     // Build description with Telegram context

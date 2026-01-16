@@ -461,11 +461,17 @@ HAS ticket ID = MODIFY EXISTING:
 
       const parsed = JSON.parse(cleanedContent) as ParsedCommand;
       
+      console.log(`[AIService] parseCommand - AI returned assigneeName: "${parsed.assigneeName}"`);
+      
       // Validate and match assignee if present
       if (parsed.assigneeName) {
         const matchedUser = this.findUserByName(parsed.assigneeName);
+        console.log(`[AIService] parseCommand - matchedUser:`, matchedUser ? { name: matchedUser.name, id: matchedUser.id } : null);
         if (matchedUser) {
           parsed.assigneeName = matchedUser.name;
+          console.log(`[AIService] parseCommand - Updated assigneeName to: "${parsed.assigneeName}"`);
+        } else {
+          console.log(`[AIService] parseCommand - No match found, keeping original: "${parsed.assigneeName}"`);
         }
       }
 
