@@ -375,7 +375,11 @@ Ready to track your tickets! 📝`;
           contextString += '\n--- End of history ---';
         }
 
-        const fullContext = cleanMessage + replyContext + contextString;
+        // Add info about who is sending the message (for "me", "myself" resolution)
+        const senderUsername = ctx.from?.username || '';
+        const senderInfo = senderUsername ? `\n\n[Message sent by: @${senderUsername}]` : '';
+        
+        const fullContext = cleanMessage + replyContext + contextString + senderInfo;
 
         // Parse the command using AI
         const command = await this.aiService.parseCommand(fullContext, recentTickets);

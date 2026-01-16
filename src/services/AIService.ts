@@ -394,11 +394,19 @@ WHEN TO SET assigneeName:
 - "[task] to [person]" → assigneeName = that person
 - "[task] for [person]" → assigneeName = that person
 
+⚠️ CRITICAL - "ME", "MYSELF", "MOI" RESOLUTION:
+- When user says "to me", "for me", "assign me", "moi", look at [Message sent by: @username] at the end
+- Match that @username to find the corresponding linearName
+- Example: If message says "assign me a ticket" and [Message sent by: @Flouflof], then assigneeName: "florent"
+- Example: If message says "create a ticket for me" and [Message sent by: @NBMSacha], then assigneeName: "sacha"
+
 Examples:
 - "integrate a ticket to sacha" → assigneeName: "sacha"
 - "create a ticket for florent" → assigneeName: "florent"
 - "assign cyril a task about X" → assigneeName: "cyril"
 - "give sandy the bug fix" → assigneeName: "sanjay"
+- "assign me a ticket" + [Message sent by: @Flouflof] → assigneeName: "florent"
+- "create a ticket for me" + [Message sent by: @cocyril] → assigneeName: "cyril"
 
 === ASSIGNEE MATCHING (CRITICAL) ===
 
