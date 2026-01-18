@@ -149,7 +149,7 @@ CONTEXT HANDLING:
             { role: 'user', content: message },
           ],
           temperature: 0.3,
-          max_tokens: 500,
+          max_tokens: 1000,
         },
         {
           headers: {
@@ -192,24 +192,53 @@ CONTEXT HANDLING:
    * Handles: markdown code blocks, control characters in strings, etc.
    */
   private cleanJsonResponse(content: string): string {
-    // Remove markdown code blocks
+    // Remove markdown code blocks (handle multiline and various formats)
     let cleaned = content
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
+      .replace(/^```json\s*/im, '')
+      .replace(/^```\s*/im, '')
+      .replace(/\s*```\s*$/im, '')
       .trim();
 
-    // Fix control characters inside JSON string values
-    // This regex finds strings and escapes unescaped control characters within them
-    cleaned = cleaned.replace(/"([^"\\]|\\.)*"/g, (match) => {
-      // Replace unescaped newlines, tabs, and other control characters
-      return match
-        .replace(/(?<!\\)\n/g, '\\n')
-        .replace(/(?<!\\)\r/g, '\\r')
-        .replace(/(?<!\\)\t/g, '\\t');
-    });
+    // If still wrapped in code blocks, try a more aggressive approach
+    if (cleaned.includes('```')) {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleaned = jsonMatch[0];
+      }
+    }
 
-    return cleaned;
+    // Fix control characters inside JSON string values
+    // Process character by character to properly escape control chars in strings
+    let result = '';
+    let inString = false;
+    let prevChar = '';
+    
+    for (let i = 0; i < cleaned.length; i++) {
+      const char = cleaned[i];
+      
+      // Track if we're inside a JSON string
+      if (char === '"' && prevChar !== '\\') {
+        inString = !inString;
+        result += char;
+      } else if (inString) {
+        // Inside a string - escape control characters
+        if (char === '\n') {
+          result += '\\n';
+        } else if (char === '\r') {
+          result += '\\r';
+        } else if (char === '\t') {
+          result += '\\t';
+        } else {
+          result += char;
+        }
+      } else {
+        result += char;
+      }
+      
+      prevChar = char;
+    }
+
+    return result;
   }
 
   private findUserByName(name: string): LinearUser | null {
@@ -483,7 +512,7 @@ HAS ticket ID = MODIFY EXISTING:
             { role: 'user', content: message },
           ],
           temperature: 0.3,
-          max_tokens: 500,
+          max_tokens: 1000,
         },
         {
           headers: {
