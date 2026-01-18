@@ -162,13 +162,7 @@ CONTEXT HANDLING:
       const content = res.data.choices?.[0]?.message?.content;
       if (!content) return null;
 
-      // Clean markdown code blocks if present (GPT sometimes wraps JSON in ```json ... ```)
-      const cleanedContent = content
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
+      const cleanedContent = this.cleanJsonResponse(content);
       const parsed = JSON.parse(cleanedContent) as ParsedTicketRequest;
       
       // Validate and match assignee
@@ -191,6 +185,31 @@ CONTEXT HANDLING:
       });
       return null;
     }
+  }
+
+  /**
+   * Clean AI response to ensure valid JSON
+   * Handles: markdown code blocks, control characters in strings, etc.
+   */
+  private cleanJsonResponse(content: string): string {
+    // Remove markdown code blocks
+    let cleaned = content
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    // Fix control characters inside JSON string values
+    // This regex finds strings and escapes unescaped control characters within them
+    cleaned = cleaned.replace(/"([^"\\]|\\.)*"/g, (match) => {
+      // Replace unescaped newlines, tabs, and other control characters
+      return match
+        .replace(/(?<!\\)\n/g, '\\n')
+        .replace(/(?<!\\)\r/g, '\\r')
+        .replace(/(?<!\\)\t/g, '\\t');
+    });
+
+    return cleaned;
   }
 
   private findUserByName(name: string): LinearUser | null {
@@ -477,13 +496,7 @@ HAS ticket ID = MODIFY EXISTING:
       const content = res.data.choices?.[0]?.message?.content;
       if (!content) return null;
 
-      // Clean markdown code blocks if present (GPT sometimes wraps JSON in ```json ... ```)
-      const cleanedContent = content
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
+      const cleanedContent = this.cleanJsonResponse(content);
       const parsed = JSON.parse(cleanedContent) as ParsedCommand;
       
       // Fix AI returning string "null" instead of actual null
