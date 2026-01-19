@@ -1479,6 +1479,7 @@ Ready to track your tickets! 📝`;
   /**
    * Send error message via DM to the user instead of posting publicly in the channel
    * Deletes the processing message from the channel
+   * If DM fails, sends to the fallback admin (configured via TELEGRAM_ADMIN_USERNAME)
    */
   private async sendErrorViaDM(
     ctx: Context,
@@ -1488,6 +1489,7 @@ Ready to track your tickets! 📝`;
     const userId = ctx.from?.id;
     const chatId = ctx.chat?.id;
     const chatType = ctx.chat?.type;
+    const senderUsername = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     
     // Delete the "Analyzing your request..." message from the channel
     try {
@@ -1498,35 +1500,61 @@ Ready to track your tickets! 📝`;
       console.error('Failed to delete processing message:', deleteErr);
     }
     
+    // Build context info
+    const chatContext = chatType !== 'private' && ctx.chat 
+      ? `\n\n<i>From: ${(ctx.chat as { title?: string }).title || 'Unknown Group'}</i>` 
+      : '';
+    
     // Try to send DM to the user
     if (userId) {
       try {
-        const chatContext = chatType !== 'private' && ctx.chat 
-          ? `\n\n<i>From: ${(ctx.chat as { title?: string }).title || 'Unknown Group'}</i>` 
-          : '';
-        
         await ctx.telegram.sendMessage(
           userId,
           errorMessage + chatContext,
           { parse_mode: 'HTML' },
         );
         console.log(`Error sent via DM to user ${userId}`);
+        return; // Success, we're done
       } catch (dmErr) {
         console.error('Failed to send DM to user:', dmErr);
-        // If DM fails (user hasn't started the bot in private), post a minimal message in channel
-        try {
-          if (chatId) {
-            await ctx.telegram.sendMessage(
-              chatId,
-              `❌ <b>Error</b> — Please start a private chat with me to see error details.`,
-              { parse_mode: 'HTML' },
-            );
-          }
-        } catch {
-          // Ignore if this also fails
-        }
       }
     }
+    
+    // If DM to user failed, send to admin instead
+    await this.sendErrorToAdmin(ctx, errorMessage, senderUsername, chatContext);
+  }
+
+  /**
+   * Send error to the configured admin when DM to user fails
+   */
+  private async sendErrorToAdmin(
+    ctx: Context,
+    errorMessage: string,
+    originalSenderUsername: string,
+    chatContext: string,
+  ): Promise<void> {
+    const adminUsername = this.config.get<string>('TELEGRAM_ADMIN_USERNAME') || 'Flouflof';
+    const adminChatId = this.config.get<string>('TELEGRAM_ADMIN_CHAT_ID');
+    
+    const adminMessage = `⚠️ <b>Error Report</b>\n\n` +
+      `<b>User:</b> @${originalSenderUsername}\n` +
+      `<b>Could not DM user directly</b>\n\n` +
+      `<b>Error:</b>\n${errorMessage}${chatContext}`;
+    
+    // If we have an admin chat ID, use it directly
+    if (adminChatId) {
+      try {
+        await ctx.telegram.sendMessage(adminChatId, adminMessage, { parse_mode: 'HTML' });
+        console.log(`Error sent to admin chat ID: ${adminChatId}`);
+        return;
+      } catch (adminErr) {
+        console.error('Failed to send error to admin chat ID:', adminErr);
+      }
+    }
+    
+    // Otherwise, log the error (we can't easily get a user's chat ID from username without them messaging first)
+    console.error(`[ERROR REPORT] Could not send error to user @${originalSenderUsername}. Admin @${adminUsername} should be notified.`);
+    console.error(`Error message: ${errorMessage}`);
   }
 
   private isBotMentioned(text: string, message: Message.TextMessage): boolean {
