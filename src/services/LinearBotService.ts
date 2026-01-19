@@ -384,7 +384,17 @@ Ready to track your tickets! 📝`;
         // Parse the command using AI
         const command = await this.aiService.parseCommand(fullContext, recentTickets);
 
-        if (!command || command.confidence < 0.5) {
+        if (!command) {
+          // AI service failed (API error, quota exceeded, etc.) - send error via DM
+          await this.sendErrorViaDM(
+            ctx,
+            processingMsg.message_id,
+            '🚫 <b>Service temporarily unavailable</b>\n\nThe AI service is currently unavailable. This could be due to:\n• API quota exceeded\n• Service temporarily down\n\nPlease try again later or contact the admin.',
+          );
+          return;
+        }
+
+        if (command.confidence < 0.5) {
           await ctx.telegram.editMessageText(
             ctx.chat.id,
             processingMsg.message_id,
@@ -422,12 +432,11 @@ Ready to track your tickets! 📝`;
         }
       } catch (err) {
         console.error('Error processing command:', err);
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
+        // Send error via DM instead of public channel
+        await this.sendErrorViaDM(
+          ctx,
           processingMsg.message_id,
-          undefined,
-          '❌ <b>An error occurred</b>\nPlease try again.',
-          { parse_mode: 'HTML' },
+          '❌ <b>An error occurred</b>\n\nSomething went wrong while processing your request. Please try again later.',
         );
       }
     });
@@ -1320,12 +1329,11 @@ Ready to track your tickets! 📝`;
     );
 
     if (!issue) {
-      await ctx.telegram.editMessageText(
-        ctx.chat!.id,
+      // Send error via DM instead of public channel
+      await this.sendErrorViaDM(
+        ctx,
         messageId,
-        undefined,
-        '❌ <b>Failed to create ticket</b>\nPlease try again later.',
-        { parse_mode: 'HTML' },
+        '❌ <b>Failed to create ticket</b>\n\nThe ticket could not be created. This might be due to:\n• Linear API issues\n• Configuration problems\n\nPlease try again later or contact the admin.',
       );
       return;
     }
@@ -1466,6 +1474,59 @@ Ready to track your tickets! 📝`;
 
   private isUserAuthorized(username: string | undefined): boolean {
     return !!username && this.allowedUsernames.has(username);
+  }
+
+  /**
+   * Send error message via DM to the user instead of posting publicly in the channel
+   * Deletes the processing message from the channel
+   */
+  private async sendErrorViaDM(
+    ctx: Context,
+    processingMessageId: number,
+    errorMessage: string,
+  ): Promise<void> {
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const chatType = ctx.chat?.type;
+    
+    // Delete the "Analyzing your request..." message from the channel
+    try {
+      if (chatId) {
+        await ctx.telegram.deleteMessage(chatId, processingMessageId);
+      }
+    } catch (deleteErr) {
+      console.error('Failed to delete processing message:', deleteErr);
+    }
+    
+    // Try to send DM to the user
+    if (userId) {
+      try {
+        const chatContext = chatType !== 'private' && ctx.chat 
+          ? `\n\n<i>From: ${(ctx.chat as { title?: string }).title || 'Unknown Group'}</i>` 
+          : '';
+        
+        await ctx.telegram.sendMessage(
+          userId,
+          errorMessage + chatContext,
+          { parse_mode: 'HTML' },
+        );
+        console.log(`Error sent via DM to user ${userId}`);
+      } catch (dmErr) {
+        console.error('Failed to send DM to user:', dmErr);
+        // If DM fails (user hasn't started the bot in private), post a minimal message in channel
+        try {
+          if (chatId) {
+            await ctx.telegram.sendMessage(
+              chatId,
+              `❌ <b>Error</b> — Please start a private chat with me to see error details.`,
+              { parse_mode: 'HTML' },
+            );
+          }
+        } catch {
+          // Ignore if this also fails
+        }
+      }
+    }
   }
 
   private isBotMentioned(text: string, message: Message.TextMessage): boolean {
