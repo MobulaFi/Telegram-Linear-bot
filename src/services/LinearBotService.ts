@@ -280,14 +280,18 @@ Ready to track your tickets! 📝`;
 
     // Handle mentions for AI-powered ticket operations
     this.bot.on('message', async (ctx) => {
-      const message = ctx.message as Message.TextMessage;
+      const message = ctx.message;
+      
+      // Extract text from message or caption (for photos)
+      const text = 'text' in message ? message.text : ('caption' in message ? message.caption : null);
+      const entities = 'entities' in message ? message.entities : ('caption_entities' in message ? message.caption_entities : []);
       
       // Store message in chat history for context (keep last 20 messages)
-      if ('text' in message) {
+      if (text) {
         const chatHistoryKey = `chat:${ctx.chat.id}:history`;
         const msgData = JSON.stringify({
           from: ctx.from?.username || ctx.from?.first_name || 'Unknown',
-          text: message.text,
+          text: text,
           timestamp: message.date,
         });
         await this.redis.lpush(chatHistoryKey, msgData);
@@ -295,12 +299,11 @@ Ready to track your tickets! 📝`;
         await this.redis.expire(chatHistoryKey, 3600); // Expire after 1 hour
       }
       
-      if (!('text' in message)) {
+      if (!text) {
         return;
       }
 
-      const text = message.text;
-      const botMentioned = this.isBotMentioned(text, message);
+      const botMentioned = this.isBotMentionedInText(text, entities);
 
       if (!botMentioned) {
         return;
@@ -381,8 +384,22 @@ Ready to track your tickets! 📝`;
         
         const fullContext = cleanMessage + replyContext + contextString + senderInfo;
 
-        // Parse the command using AI
-        const command = await this.aiService.parseCommand(fullContext, recentTickets);
+        // Download image if present
+        let imageBase64: string | null = null;
+        if ('photo' in message && message.photo && message.photo.length > 0) {
+          try {
+            // Get the largest photo (last in array)
+            const photo = message.photo[message.photo.length - 1];
+            const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+            const imageResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+            imageBase64 = Buffer.from(imageResponse.data).toString('base64');
+          } catch (imgErr) {
+            console.error('Failed to download image:', imgErr);
+          }
+        }
+
+        // Parse the command using AI (with optional image)
+        const command = await this.aiService.parseCommand(fullContext, recentTickets, imageBase64);
 
         if (!command) {
           // AI service failed (API error, quota exceeded, etc.) - send error via DM
@@ -1558,18 +1575,24 @@ Ready to track your tickets! 📝`;
   }
 
   private isBotMentioned(text: string, message: Message.TextMessage): boolean {
-    // Check for @username mention
+    const entities = message.entities || [];
+    return this.isBotMentionedInText(text, entities);
+  }
+
+  private isBotMentionedInText(text: string, entities: { type: string; offset: number; length: number }[] | undefined): boolean {
+    // Check for @username mention in text
     if (this.botUsername && text.toLowerCase().includes(`@${this.botUsername.toLowerCase()}`)) {
       return true;
     }
 
     // Check for entity mentions
-    const entities = message.entities || [];
-    for (const entity of entities) {
-      if (entity.type === 'mention') {
-        const mentionText = text.substring(entity.offset, entity.offset + entity.length);
-        if (this.botUsername && mentionText.toLowerCase() === `@${this.botUsername.toLowerCase()}`) {
-          return true;
+    if (entities) {
+      for (const entity of entities) {
+        if (entity.type === 'mention') {
+          const mentionText = text.substring(entity.offset, entity.offset + entity.length);
+          if (this.botUsername && mentionText.toLowerCase() === `@${this.botUsername.toLowerCase()}`) {
+            return true;
+          }
         }
       }
     }

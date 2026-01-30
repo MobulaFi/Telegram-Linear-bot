@@ -347,7 +347,7 @@ CONTEXT HANDLING:
     return this.linearUsers;
   }
 
-  async parseCommand(message: string, recentTickets: string[]): Promise<ParsedCommand | null> {
+  async parseCommand(message: string, recentTickets: string[], imageBase64: string | null = null): Promise<ParsedCommand | null> {
     await this.fetchLinearUsers();
     
     const userListForAI = USER_MAPPINGS.map((u) => 
@@ -359,6 +359,8 @@ CONTEXT HANDLING:
       : 'No recent tickets in context.';
 
     const systemPrompt = `You are an expert technical writer that parses Telegram messages to understand what action the user wants to perform on Linear tickets.
+
+${imageBase64 ? 'An image has been attached to this message. Analyze the image and include relevant details in the ticket description. Describe what you see in the image that is relevant to the ticket.' : ''}
 
 Available actions:
 - "create": Create a new ticket (USE THIS when user wants to CREATE/MAKE a NEW ticket)
@@ -503,13 +505,24 @@ HAS ticket ID = MODIFY EXISTING:
 - "cancel MOB-890" → cancel (has MOB-890)`;
 
     try {
+      // Build user message content (with optional image)
+      type MessageContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+      let userContent: MessageContent = message;
+      
+      if (imageBase64) {
+        userContent = [
+          { type: 'text', text: message },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+        ];
+      }
+
       const res = await axios.post(
         'https://api.openai.com/v1/chat/completions',
         {
           model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: message },
+            { role: 'user', content: userContent },
           ],
           temperature: 0.3,
           max_tokens: 1000,
